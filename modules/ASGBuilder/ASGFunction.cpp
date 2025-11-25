@@ -44,7 +44,7 @@ namespace ASG
             std::string EscapeJSONString(const std::string& str)
             {
                 std::ostringstream oss;
-                for (char c : str)
+                for (const char c : str)
                 {
                     switch (c)
                     {
@@ -76,7 +76,7 @@ namespace ASG
                 return oss.str();
             }
 
-            std::string FormatDouble(double value, int precision = 6)
+            std::string FormatDouble(const double value, const int precision = 6)
             {
                 std::ostringstream oss;
                 oss << std::fixed << std::setprecision(precision) << value;
@@ -182,8 +182,9 @@ namespace ASG
             // Use SolidClassifier to check if the center is inside the solid
             // 使用 SolidClassifier 检查曲率中心是否在实体内部
             const BRepClass3d_SolidClassifier classifier(parentSolid, centerOfCurvature, 1e-7);
+            const TopAbs_State state = classifier.State();
 
-            if (const TopAbs_State state = classifier.State(); state == TopAbs_IN)
+            if (state == TopAbs_IN)
             {
                 // Center inside solid -> Surface curves away -> Convex (e.g., Shaft)
                 // 中心在实体内 -> 表面向外凸 -> 凸 (例如轴)
@@ -231,7 +232,8 @@ namespace ASG
 
                 // Find Neighbor ID
                 // 查找邻居 ID
-                if (auto it = faceIDMap_.find(neighborFace); it != faceIDMap_.end())
+                auto it = faceIDMap_.find(neighborFace);
+                if (it != faceIDMap_.end())
                 {
                     adjInfo.neighborFaceID = it->second;
                 }
@@ -465,7 +467,7 @@ namespace ASG
                               (p1.Z() + p2.Z()) / 2.0);
 
         // 使用分类器检查中点状态 (使用较小的容差)
-        BRepClass3d_SolidClassifier classifier(solid, midPoint, 1e-7);
+        const BRepClass3d_SolidClassifier classifier(solid, midPoint, 1e-7);
 
         // 如果中点在实体内部 (TopAbs_IN)，说明两壁之间是材料
         return (classifier.State() == TopAbs_IN);
@@ -483,11 +485,11 @@ namespace ASG
         const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector; // 已修正为指向外部的法线
 
         // 2. 寻找侧壁
-        for (const auto& adjInfo : baseFeature->adjacencyList)
+        for (const auto& [neighborFaceID, continuityType] : baseFeature->adjacencyList)
         {
-            if (adjInfo.continuityType != ContinuityType::C0) continue;
+            if (continuityType != ContinuityType::C0) continue;
 
-            auto it = featureMap.find(adjInfo.neighborFaceID);
+            auto it = featureMap.find(neighborFaceID);
             if (it == featureMap.end()) continue;
             auto neighbor = it->second;
 
@@ -496,6 +498,19 @@ namespace ASG
 
             // 几何检查：侧壁必须垂直于基座
             if (!neighbor->geometricParams.axisVector.IsNormal(baseNormal, Constants::AngleTolerance)) continue;
+
+            // ====================================================================
+            // 鲁棒性检查：基座有效性验证 (Edge Convexity Check)
+            // 原理：基座与侧壁的连接必须是"凹"的 (中间是空气)。
+            // 如果中间是实体，说明这是"凸"边，当前面是"顶面"而非"基座"，必须剔除。
+            // ====================================================================
+            gp_Pnt pBase = GetFaceSamplePoint(baseFeature->brepFace);
+            gp_Pnt pWall = GetFaceSamplePoint(neighbor->brepFace);
+
+            if (IsMaterialBetween(pBase, pWall, partNode.brepShape))
+            {
+                continue; // 连接处是实心的 -> 这是顶面，不是基座 -> 跳过
+            }
 
             candidateWalls.push_back(neighbor);
         }
@@ -561,26 +576,31 @@ namespace ASG
         const std::shared_ptr<AtomicFeature>& baseFeature,
         FeatureMap& featureMap)
     {
-        // 1. 基座检查：只要求是平面
+        // 1. 基座检查
         if (baseFeature->atomType != AtomType::PLANE) return false;
 
         std::vector<std::shared_ptr<AtomicFeature>> candidateWalls;
-        const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector; // 已修正为指向外部的法线
+        const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector;
 
         // 2. 寻找侧壁
-        for (const auto& adjInfo : baseFeature->adjacencyList)
+        for (const auto& [neighborFaceID, continuityType] : baseFeature->adjacencyList)
         {
-            if (adjInfo.continuityType != ContinuityType::C0) continue;
-
-            auto it = featureMap.find(adjInfo.neighborFaceID);
+            if (continuityType != ContinuityType::C0) continue;
+            auto it = featureMap.find(neighborFaceID);
             if (it == featureMap.end()) continue;
             auto neighbor = it->second;
 
             if (neighbor->isConsumed) continue;
             if (neighbor->atomType != AtomType::PLANE) continue;
-
-            // 几何检查：侧壁必须垂直于基座
             if (!neighbor->geometricParams.axisVector.IsNormal(baseNormal, Constants::AngleTolerance)) continue;
+
+            // 基座有效性检查 (榫的顶面与侧壁应为凸连接/实体)
+            gp_Pnt pBase = GetFaceSamplePoint(baseFeature->brepFace);
+            gp_Pnt pWall = GetFaceSamplePoint(neighbor->brepFace);
+            if (!IsMaterialBetween(pBase, pWall, partNode.brepShape))
+            {
+                continue;
+            }
 
             candidateWalls.push_back(neighbor);
         }
@@ -595,21 +615,74 @@ namespace ASG
                 const auto& wallA = candidateWalls[i];
                 const auto& wallB = candidateWalls[j];
 
-                // [检查 A] 法线反向平行
-                // 既然法线都指向外部，槽的两个对立侧壁法线应该是相反的
+                // A. 法线反向平行
                 if (!wallA->geometricParams.axisVector.IsOpposite(wallB->geometricParams.axisVector,
                                                                   Constants::AngleTolerance))
                 {
                     continue;
                 }
 
-                // [检查 B] 材质检测
-                gp_Pnt p1 = GetFaceSamplePoint(wallA->brepFace);
-                gp_Pnt p2 = GetFaceSamplePoint(wallB->brepFace);
+                // B. 内部材质检测 (确保是实体)
+                gp_Pnt pWallA = GetFaceSamplePoint(wallA->brepFace);
+                gp_Pnt pWallB = GetFaceSamplePoint(wallB->brepFace);
 
-                // 如果两壁之间有材料 (IsMaterial)，那就是榫 (Tongue)
-                if (IsMaterialBetween(p1, p2, partNode.brepShape))
+                if (IsMaterialBetween(pWallA, pWallB, partNode.brepShape))
                 {
+                    // ============================================================
+                    // [新增] 全局鲁棒性检查：根部连接检测 (Root Check)
+                    // 目的：区分"真榫"(凸特征)和"平板"(凸实体)。
+                    // 逻辑：真榫的侧壁必须至少有一个"凹"的邻居(连接到基体地板)。
+                    //       如果侧壁的所有邻居都是"凸"连接，那它就是一个孤立的块。
+                    // ============================================================
+
+                    bool hasConcaveConnection = false;
+
+                    // 检查 WallA 的邻居
+                    for (const auto& [adjID, continuity] : wallA->adjacencyList)
+                    {
+                        if (adjID == baseFeature->faceID) continue; // 忽略顶面
+                        auto it = featureMap.find(adjID);
+                        if (it == featureMap.end()) continue;
+
+                        // 采样并检查连接性质
+                        gp_Pnt pNeighbor = GetFaceSamplePoint(it->second->brepFace);
+                        // 如果两面中点是空气(false)，说明是凹连接 -> 真特征
+                        if (!IsMaterialBetween(pWallA, pNeighbor, partNode.brepShape))
+                        {
+                            hasConcaveConnection = true;
+                            break;
+                        }
+                    }
+
+                    // 如果 WallA 没找到，再给 WallB 一次机会
+                    if (!hasConcaveConnection)
+                    {
+                        for (const auto& [adjID, continuity] : wallB->adjacencyList)
+                        {
+                            if (adjID == baseFeature->faceID) continue;
+                            auto it = featureMap.find(adjID);
+                            if (it == featureMap.end()) continue;
+
+                            gp_Pnt pNeighbor = GetFaceSamplePoint(it->second->brepFace);
+                            if (!IsMaterialBetween(pWallB, pNeighbor, partNode.brepShape))
+                            {
+                                hasConcaveConnection = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // [判决]
+                    if (!hasConcaveConnection)
+                    {
+                        // 这是一个孤立的长方体，不是榫特征
+                        // 应该跳过，留给后续的 FunctionalPlane 规则去处理
+                        continue;
+                    }
+
+                    // ============================================================
+                    // 匹配成功，创建特征
+                    // ============================================================
                     CompositeFeature tongueFeature;
                     tongueFeature.partID = partNode.partID;
                     tongueFeature.type = CompositeFeatureType::TONGUE;
@@ -617,16 +690,15 @@ namespace ASG
                         partNode.compositeFeatures.size());
 
                     tongueFeature.planeNormal = baseNormal;
+                    tongueFeature.planeLocation = baseFeature->geometricParams.locationPoint;
                     tongueFeature.axis = gp_Ax1(baseFeature->geometricParams.locationPoint,
                                                 baseNormal.Crossed(wallA->geometricParams.axisVector));
 
-                    // 使用采样点计算距离更安全
                     gp_Pln planeB(wallB->geometricParams.locationPoint, wallB->geometricParams.axisVector);
-                    tongueFeature.width = planeB.Distance(p1);
+                    tongueFeature.width = planeB.Distance(pWallA); // 使用采样点
 
                     tongueFeature.childAtomicFeatureIDs = {baseFeature->faceID, wallA->faceID, wallB->faceID};
 
-                    // 标记消耗
                     baseFeature->isConsumed = true;
                     wallA->isConsumed = true;
                     wallB->isConsumed = true;
@@ -653,9 +725,9 @@ namespace ASG
 
     gp_Pnt ASGBuilder::GetFaceSamplePoint(const TopoDS_Face& face)
     {
-        BRepAdaptor_Surface surfAdaptor(face);
-        double uMid = (surfAdaptor.FirstUParameter() + surfAdaptor.LastUParameter()) / 2.0;
-        double vMid = (surfAdaptor.FirstVParameter() + surfAdaptor.LastVParameter()) / 2.0;
+        const BRepAdaptor_Surface surfAdaptor(face);
+        const double uMid = (surfAdaptor.FirstUParameter() + surfAdaptor.LastUParameter()) / 2.0;
+        const double vMid = (surfAdaptor.FirstVParameter() + surfAdaptor.LastVParameter()) / 2.0;
         return surfAdaptor.Value(uMid, vMid);
     }
 
@@ -800,7 +872,7 @@ namespace ASG
                     MatchCoaxial(nodeA, featA, nodeB, featB);
                 }
 
-                bool isPlanarA = (featA.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
+                const bool isPlanarA = (featA.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
                     featA.type == CompositeFeatureType::STEP_PLANE ||
                     featA.type == CompositeFeatureType::TONGUE ||
                     featA.type == CompositeFeatureType::SLOT);
@@ -826,16 +898,15 @@ namespace ASG
     void ASGBuilder::MatchCoaxial(const PartNode& nodeA, const CompositeFeature& featA,
                                   const PartNode& nodeB, const CompositeFeature& featB)
     {
-        gp_Ax1 axisA = TransformAxis(featA.axis, nodeA.transformation);
-        gp_Ax1 axisB = TransformAxis(featB.axis, nodeB.transformation);
+        const gp_Ax1 axisA = TransformAxis(featA.axis, nodeA.transformation);
+        const gp_Ax1 axisB = TransformAxis(featB.axis, nodeB.transformation);
 
         if (!axisA.Direction().IsParallel(axisB.Direction(), Constants::AngleTolerance))
         {
             return;
         }
 
-        const gp_Lin lineA(axisA);
-        if (lineA.Distance(axisB.Location()) > Constants::DistanceTolerance)
+        if (const gp_Lin lineA(axisA); lineA.Distance(axisB.Location()) > Constants::DistanceTolerance)
         {
             return;
         }
