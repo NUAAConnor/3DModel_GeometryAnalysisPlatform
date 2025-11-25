@@ -260,8 +260,9 @@ namespace ASG
                     const auto& otherFeat = candidates[j];
                     if (otherFeat->isFragment) continue;
 
-                    if (mainFeat->atomType != otherFeat->atomType || mainFeat->formType != otherFeat->formType) continue
-                        ;
+                    if (mainFeat->atomType != otherFeat->atomType || mainFeat->formType != otherFeat->formType)
+                        continue
+                            ;
 
                     bool match = false;
                     const auto& p1 = mainFeat->geometricParams;
@@ -320,7 +321,7 @@ namespace ASG
         for (auto& partNode : partNodes_)
         {
             FeatureMap featureMap;
-            for (auto& f : partNode.atomicFeatures)
+            for (const auto& f : partNode.atomicFeatures)
             {
                 featureMap[f->faceID] = f;
             }

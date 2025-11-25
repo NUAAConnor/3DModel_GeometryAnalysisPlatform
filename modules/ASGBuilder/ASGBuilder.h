@@ -52,13 +52,14 @@
 #include <XCAFDoc_ShapeTool.hxx>
 #include <TDF_Label.hxx>
 
-namespace ASG {
-
+namespace ASG
+{
     // ============================================================================
     // Constants / 常量定义
     // ============================================================================
 
-    namespace Constants {
+    namespace Constants
+    {
         /**
          * @brief Tolerance for distance/radius comparison (mm)
          * 距离和半径比较的容差 (1e-6 mm)
@@ -80,58 +81,63 @@ namespace ASG {
      * @brief Atomic Geometry Type
      * 原子几何类型枚举
      */
-    enum class AtomType {
-        PLANE,      // 平面
-        CYLINDER,   // 圆柱面
-        CONE,       // 圆锥面
-        SPHERE,     // 球面
-        TORUS,      // 环面
-        BSPLINE,    // B样条曲面
-        OTHER       // 其他
+    enum class AtomType
+    {
+        PLANE, // 平面
+        CYLINDER, // 圆柱面
+        CONE, // 圆锥面
+        SPHERE, // 球面
+        TORUS, // 环面
+        BSPLINE, // B样条曲面
+        OTHER // 其他
     };
 
     /**
      * @brief Form Type (Concavity)
      * 形态类型枚举（凹/凸）
      */
-    enum class FormType {
-        CONVEX,     // 凸出（外部表面）
-        CONCAVE,    // 凹陷（内部特征）
-        NEUTRAL     // 中性（无法判断）
+    enum class FormType
+    {
+        CONVEX, // 凸出（外部表面）
+        CONCAVE, // 凹陷（内部特征）
+        NEUTRAL // 中性（无法判断）
     };
 
     /**
      * @brief Geometric Continuity Type
      * 几何连续性类型
      */
-    enum class ContinuityType {
-        C0,         // 位置连续（尖锐边）
-        C1,         // 相切连续（圆角）
-        C2,         // 曲率连续
-        UNKNOWN     // 未知
+    enum class ContinuityType
+    {
+        C0, // 位置连续（尖锐边）
+        C1, // 相切连续（圆角）
+        C2, // 曲率连续
+        UNKNOWN // 未知
     };
 
     /**
      * @brief Composite Feature Type
      * 复合特征类型枚举 (有工程意义的特征)
      */
-    enum class CompositeFeatureType {
+    enum class CompositeFeatureType
+    {
         UNKNOWN,
-        HOLE,              // 孔 (凹陷圆柱)
-        SHAFT,             // 轴 (凸出圆柱)
-        FUNCTIONAL_PLANE,  // 功能平面 (装配贴合面)
-        STEP_PLANE,        // 台阶面 (与孔/轴相邻的平面)
-        SLOT,              // 槽 (由平面组成的凹槽)
-        TONGUE,             // 榫 (由平面组成的凸出部分)
+        HOLE, // 孔 (凹陷圆柱)
+        SHAFT, // 轴 (凸出圆柱)
+        FUNCTIONAL_PLANE, // 功能平面 (装配贴合面)
+        STEP_PLANE, // 台阶面 (与孔/轴相邻的平面)
+        SLOT, // 槽 (由平面组成的凹槽)
+        TONGUE, // 榫 (由平面组成的凸出部分)
     };
 
     /**
      * @brief Hole Type
      * 孔类型枚举
      */
-    enum class HoleType {
-        THROUGH,    // 通孔
-        BLIND,      // 盲孔
+    enum class HoleType
+    {
+        THROUGH, // 通孔
+        BLIND, // 盲孔
         UNKNOWN
     };
 
@@ -139,18 +145,20 @@ namespace ASG {
      * @brief Assembly Constraint Type
      * 装配约束类型
      */
-    enum class ConstraintType {
-        COAXIAL,    // 同轴 (孔-轴)
+    enum class ConstraintType
+    {
+        COAXIAL, // 同轴 (孔-轴)
         COINCIDENT, // 贴合 (面-面)
-        PRISMATIC,  // 棱柱配合 (键-槽)
-        OFFSET      // 距离 (面-面有间距)
+        PRISMATIC, // 棱柱配合 (键-槽)
+        OFFSET // 距离 (面-面有间距)
     };
 
     /**
      * @brief Assembly Constraint Structure
      * 装配约束结构：描述两个零件特征之间的关系
      */
-    struct AssemblyConstraint {
+    struct AssemblyConstraint
+    {
         ConstraintType type;
 
         std::string partID_A;
@@ -161,19 +169,23 @@ namespace ASG {
 
         double value = 0.0;
 
-        [[nodiscard]] std::string ToString() const {
+        [[nodiscard]] std::string ToString() const
+        {
             std::string typeStr;
-            switch (type) {
-            case ConstraintType::COAXIAL: typeStr = "COAXIAL"; break;
-            case ConstraintType::COINCIDENT: typeStr = "COINCIDENT"; break;
-            case ConstraintType::PRISMATIC: typeStr = "PRISMATIC"; break;
-            case ConstraintType::OFFSET: typeStr = "OFFSET"; break;
+            switch (type)
+            {
+            case ConstraintType::COAXIAL: typeStr = "COAXIAL";
+                break;
+            case ConstraintType::COINCIDENT: typeStr = "COINCIDENT";
+                break;
+            case ConstraintType::PRISMATIC: typeStr = "PRISMATIC";
+                break;
+            case ConstraintType::OFFSET: typeStr = "OFFSET";
+                break;
             }
             return "[" + typeStr + "] " + partID_A + ":" + featureID_A + " <--> " + partID_B + ":" + featureID_B;
         }
     };
-
-
 
 
     // ============================================================================
@@ -184,14 +196,15 @@ namespace ASG {
      * @brief Geometric Parameters for various shapes
      * 通用几何参数结构
      */
-    struct GeometricParams {
+    struct GeometricParams
+    {
         // Common
-        gp_Dir axisVector;      // Normal for Plane, Axis for Cylinder/Cone
-        gp_Pnt locationPoint;   // Location for Plane, Axis Point for Cylinder
+        gp_Dir axisVector; // Normal for Plane, Axis for Cylinder/Cone
+        gp_Pnt locationPoint; // Location for Plane, Axis Point for Cylinder
 
         // Dimensions
-        double radius = 0.0;    // Radius (Cylinder, Cone, Sphere)
-        double height = 0.0;    // Height/Depth along axis
+        double radius = 0.0; // Radius (Cylinder, Cone, Sphere)
+        double height = 0.0; // Height/Depth along axis
         double semiAngle = 0.0; // Cone semi-angle
         double majorRadius = 0.0; // Torus
         double minorRadius = 0.0; // Torus
@@ -201,7 +214,8 @@ namespace ASG {
      * @brief Adjacency Information
      * 邻接信息结构
      */
-    struct AdjacencyInfo {
+    struct AdjacencyInfo
+    {
         std::string neighborFaceID;
         ContinuityType continuityType = ContinuityType::UNKNOWN;
     };
@@ -210,7 +224,8 @@ namespace ASG {
      * @brief Atomic Feature Structure
      * 原子特征结构：存储一个面的完整几何与拓扑信息
      */
-    struct AtomicFeature {
+    struct AtomicFeature
+    {
         std::string faceID;
         TopoDS_Face brepFace; // TopoDS_Face is a value-type handle (lightweight)
 
@@ -225,14 +240,14 @@ namespace ASG {
         bool isFunctional = true;
 
         // Fragment Merging (Step 2.5)
-        bool isFragment = false;        // Is this a split face? / 是否为碎片
-        bool isMainFragment = false;    // Is this the representative? / 是否为主特征
-        std::string logicalFeatureID;   // Shared ID for merged features / 逻辑特征ID
+        bool isFragment = false; // Is this a split face? / 是否为碎片
+        bool isMainFragment = false; // Is this the representative? / 是否为主特征
+        std::string logicalFeatureID; // Shared ID for merged features / 逻辑特征ID
         double mergedArea = 0.0;
         std::vector<std::string> fragmentFaceIDs;
 
         // Step 3 Status
-        bool isConsumed = false;        // Already used in a composite feature? / 是否已被消耗
+        bool isConsumed = false; // Already used in a composite feature? / 是否已被消耗
 
         AtomicFeature() = default;
     };
@@ -251,7 +266,7 @@ namespace ASG {
         std::vector<std::string> childAtomicFeatureIDs;
 
         // Geometric Summary (Cached for quick access) / 几何简报
-        gp_Ax1 axis;                // For rotational features
+        gp_Ax1 axis; // For rotational features
         double nominalRadius = 0.0;
         double height = 0.0;
 
@@ -269,12 +284,15 @@ namespace ASG {
      * @brief Merge Key for fragment identification
      * 合并键：用于识别属于同一几何面的碎片
      */
-    struct MergeKey {
+    struct MergeKey
+    {
         Handle(Geom_Surface) surface;
         FormType formType;
 
-        bool operator<(const MergeKey& other) const {
-            if (surface.get() != other.surface.get()) {
+        bool operator<(const MergeKey& other) const
+        {
+            if (surface.get() != other.surface.get())
+            {
                 return surface.get() < other.surface.get();
             }
             return static_cast<int>(formType) < static_cast<int>(other.formType);
@@ -285,7 +303,8 @@ namespace ASG {
      * @brief Part Node Structure
      * 零件节点结构
      */
-    struct PartNode {
+    struct PartNode
+    {
         std::string partID;
         TopoDS_Shape brepShape;
         gp_Trsf transformation;
@@ -303,7 +322,8 @@ namespace ASG {
     // Main Class: ASGBuilder
     // ============================================================================
 
-    class ASGBuilder {
+    class ASGBuilder
+    {
     public:
         /**
          * @brief Constructor for ASGBuilder
@@ -527,7 +547,6 @@ namespace ASG {
         static bool RecognizeShaftFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature, FeatureMap& featureMap);
 
 
-
         /**
          * @brief Recognize slot feature (concave channel)
          * 识别槽特征（凹陷通道）
@@ -586,7 +605,8 @@ namespace ASG {
          * @param featureMap 输入：特征映射表 / Feature ID map
          * @return 输出：识别成功返回 true，否则返回 false / true when plane promoted to functional feature
          */
-        static bool RecognizeFunctionalPlaneFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature, FeatureMap& featureMap);
+        static bool RecognizeFunctionalPlaneFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature,
+                                                    FeatureMap& featureMap);
 
         static double ComputeFaceArea(const TopoDS_Face& face);
         static gp_Pnt GetFaceSamplePoint(const TopoDS_Face& face);
@@ -613,10 +633,13 @@ namespace ASG {
         std::vector<PartNode> partNodes_;
 
         // [Fix] Updated Comparator
-        struct FaceComparator {
-            bool operator()(const TopoDS_Face& f1, const TopoDS_Face& f2) const {
+        struct FaceComparator
+        {
+            bool operator()(const TopoDS_Face& f1, const TopoDS_Face& f2) const
+            {
                 // 1. Compare TShape pointers
-                if (f1.TShape().get() != f2.TShape().get()) {
+                if (f1.TShape().get() != f2.TShape().get())
+                {
                     return f1.TShape().get() < f2.TShape().get();
                 }
 
@@ -624,7 +647,8 @@ namespace ASG {
                 // Using IntegerLast() from Standard_Integer.hxx instead of INT_MAX
                 const int h1 = static_cast<int>(f1.Location().HashCode());
 
-                if (const int h2 = static_cast<int>(f2.Location().HashCode()); h1 != h2) {
+                if (const int h2 = static_cast<int>(f2.Location().HashCode()); h1 != h2)
+                {
                     return h1 < h2;
                 }
 
@@ -632,6 +656,7 @@ namespace ASG {
                 return f1.Orientation() < f2.Orientation();
             }
         };
+
         std::map<TopoDS_Face, std::string, FaceComparator> faceIDMap_;
 
         /**
@@ -644,6 +669,4 @@ namespace ASG {
          */
         std::vector<AssemblyConstraint> constraints_;
     };
-
 } // namespace ASG
-

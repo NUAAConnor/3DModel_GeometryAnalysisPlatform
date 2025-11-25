@@ -10,12 +10,15 @@
 
 // Use raw string literal for cleaner path handling
 // 请在此处修改为你的实际文件路径
-const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
+//const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/Face2Face_Ass.stp)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/USlot-Key_Ass.stp)";
+const std::string STEP_FILE_PATH =
+    R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Logic Check_Ass.stp)";
 const std::string JSON_OUTPUT_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/output_result.json)";
 
-int main() {
+int main()
+{
     std::cout << "==============================================" << std::endl;
     std::cout << "   3D Geometry Analysis Platform (Refactored) " << std::endl;
     std::cout << "==============================================" << std::endl;
@@ -25,19 +28,22 @@ int main() {
 
     // 2. Load File / 加载文件
     // Using std::filesystem to check existence first is a good modern practice
-    if (!std::filesystem::exists(STEP_FILE_PATH)) {
+    if (!std::filesystem::exists(STEP_FILE_PATH))
+    {
         std::cerr << "[Error] File not found: " << STEP_FILE_PATH << std::endl;
         std::cerr << "Please update STEP_FILE_PATH in main.cpp." << std::endl;
         return 1;
     }
 
-    if (!builder.LoadAssemblyFromSTEP(STEP_FILE_PATH)) {
+    if (!builder.LoadAssemblyFromSTEP(STEP_FILE_PATH))
+    {
         std::cerr << "[Error] Failed to load STEP file." << std::endl;
         return 1;
     }
 
     // 3. Execute Pipeline / 执行分析流程
-    try {
+    try
+    {
         // A. Parse Structure
         builder.ParseAssemblyTree();
 
@@ -53,14 +59,18 @@ int main() {
         // E. Output Results
         builder.PrintStatistics();
 
-        if (builder.ExportToJSON(JSON_OUTPUT_PATH)) {
+        if (builder.ExportToJSON(JSON_OUTPUT_PATH))
+        {
             std::cout << "[Success] Analysis results saved to: " << JSON_OUTPUT_PATH << std::endl;
         }
-
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "[Exception] " << e.what() << std::endl;
         return 1;
-    } catch (...) {
+    }
+    catch (...)
+    {
         std::cerr << "[Exception] Unknown error occurred." << std::endl;
         return 1;
     }
