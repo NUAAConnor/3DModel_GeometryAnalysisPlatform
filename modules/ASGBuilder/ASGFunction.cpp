@@ -1059,24 +1059,41 @@ namespace ASG
         const gp_Ax1 axisSlot = TransformAxis(slot->axis, nodeSlot->transformation);
         const gp_Ax1 axisTongue = TransformAxis(tongue->axis, nodeTongue->transformation);
 
+        // 1. 轴线平行检查
         if (!axisSlot.Direction().IsParallel(axisTongue.Direction(), Constants::AngleTolerance))
         {
             return;
         }
 
+        // 2. 宽度匹配检查
         if (std::abs(slot->width - tongue->width) > 1.0)
         {
             return;
         }
 
+        // 3. [修正] 法线检查
         const gp_Dir normSlot = TransformDir(slot->planeNormal, nodeSlot->transformation);
         const gp_Dir normTongue = TransformDir(tongue->planeNormal, nodeTongue->transformation);
 
-        if (!normSlot.IsOpposite(normTongue, Constants::AngleTolerance))
+        // 错误修正：这里必须是 IsParallel (同向)，因为槽底和榫顶法线方向相同
+        if (!normSlot.IsParallel(normTongue, Constants::AngleTolerance))
         {
             return;
         }
 
+        // 4. [新增] 对齐检查 (防止错位匹配)
+        // 槽的"宽度方向" = 法线 x 轴线
+        gp_Dir widthDirSlot = normSlot.Crossed(axisSlot.Direction());
+        // 构建槽的中心平面
+        gp_Pln centerPlaneSlot(axisSlot.Location(), widthDirSlot);
+
+        // 检查榫的中心是否在槽的中心平面上
+        if (centerPlaneSlot.Distance(axisTongue.Location()) > 1.0) // 1mm 容差
+        {
+            return;
+        }
+
+        // -> 匹配成功
         AssemblyConstraint constraint;
         constraint.type = ConstraintType::PRISMATIC;
         constraint.partID_A = nodeA.partID;
