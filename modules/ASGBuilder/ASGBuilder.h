@@ -625,7 +625,6 @@ namespace ASG
         static gp_Dir TransformDir(const gp_Dir& localDir, const gp_Trsf& trsf);
         static bool CheckBoundingBoxCollision(const PartNode& nodeA, const PartNode& nodeB);
 
-    private:
         // Member Data
         Handle(TDocStd_Document) doc_;
         Handle(XCAFDoc_ShapeTool) shapeTool_;

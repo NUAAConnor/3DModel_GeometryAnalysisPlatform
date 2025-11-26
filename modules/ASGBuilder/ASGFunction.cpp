@@ -7,6 +7,7 @@
 // OpenCASCADE Standard Headers
 // OpenCASCADE 标准头文件
 #include <BRep_Tool.hxx>
+#include <BRepTools.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepGProp.hxx>
@@ -478,16 +479,16 @@ namespace ASG
         const std::shared_ptr<AtomicFeature>& baseFeature,
         FeatureMap& featureMap)
     {
-        // 1. 基座检查：只要求是平面
+        // 1. 基座检查：只要求是平面 (不再依赖 FormType)
         if (baseFeature->atomType != AtomType::PLANE) return false;
 
         std::vector<std::shared_ptr<AtomicFeature>> candidateWalls;
-        const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector; // 已修正为指向外部的法线
+        const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector;
 
         // 2. 寻找侧壁
         for (const auto& [neighborFaceID, continuityType] : baseFeature->adjacencyList)
         {
-            if (continuityType != ContinuityType::C0) continue;
+            if (continuityType != ContinuityType::C0) continue; // 必须是尖锐连接
 
             auto it = featureMap.find(neighborFaceID);
             if (it == featureMap.end()) continue;
@@ -496,20 +497,16 @@ namespace ASG
             if (neighbor->isConsumed) continue;
             if (neighbor->atomType != AtomType::PLANE) continue;
 
-            // 几何检查：侧壁必须垂直于基座
+            // 2a. 几何检查：侧壁必须垂直于基座
             if (!neighbor->geometricParams.axisVector.IsNormal(baseNormal, Constants::AngleTolerance)) continue;
 
-            // ====================================================================
-            // 鲁棒性检查：基座有效性验证 (Edge Convexity Check)
-            // 原理：基座与侧壁的连接必须是"凹"的 (中间是空气)。
-            // 如果中间是实体，说明这是"凸"边，当前面是"顶面"而非"基座"，必须剔除。
-            // ====================================================================
+            // 2b. [关键] 基座连接性检查
+            // 对于槽(Slot)，基座是"底面"，它与侧壁的夹角内应该是"空气" (凹连接)
             gp_Pnt pBase = GetFaceSamplePoint(baseFeature->brepFace);
             gp_Pnt pWall = GetFaceSamplePoint(neighbor->brepFace);
-
             if (IsMaterialBetween(pBase, pWall, partNode.brepShape))
             {
-                continue; // 连接处是实心的 -> 这是顶面，不是基座 -> 跳过
+                continue; // 如果连接处是实心的，说明这是凸边(如榫的顶面)，不是槽底
             }
 
             candidateWalls.push_back(neighbor);
@@ -525,37 +522,44 @@ namespace ASG
                 const auto& wallA = candidateWalls[i];
                 const auto& wallB = candidateWalls[j];
 
-                // [检查 A] 法线反向平行
-                // 既然法线都指向外部，槽的两个对立侧壁法线应该是相反的
+                // 3a. 法线反向平行检查
+                // 槽的两个对立侧壁，法线指向槽内空间，应该是相反的
                 if (!wallA->geometricParams.axisVector.IsOpposite(wallB->geometricParams.axisVector,
                                                                   Constants::AngleTolerance))
                 {
                     continue;
                 }
 
-                // [检查 B] 材质检测
+                // 3b. [核心] 内部材质检测
                 // 获取两个侧壁上的采样点
                 gp_Pnt p1 = GetFaceSamplePoint(wallA->brepFace);
                 gp_Pnt p2 = GetFaceSamplePoint(wallB->brepFace);
 
-                // 如果两壁之间没有材料 (!IsMaterial)，那就是槽
+                // 如果两壁连线中点 *没有* 材料 (IsMaterial == false)，说明中间是空的 -> 这是一个槽
                 if (!IsMaterialBetween(p1, p2, partNode.brepShape))
                 {
-                    // 找到了槽，创建特征
+                    // === 识别成功，创建槽特征 ===
                     CompositeFeature slotFeature;
                     slotFeature.partID = partNode.partID;
                     slotFeature.type = CompositeFeatureType::SLOT;
-                    slotFeature.compositeID = partNode.partID + "_Slot_" + std::to_string(
-                        partNode.compositeFeatures.size());
+                    slotFeature.compositeID = partNode.partID + "_Slot_" + std::to_string(partNode.compositeFeatures.size());
 
+                    // 填充几何信息
                     slotFeature.planeNormal = baseNormal;
-                    slotFeature.axis = gp_Ax1(baseFeature->geometricParams.locationPoint,
-                                              baseNormal.Crossed(wallA->geometricParams.axisVector));
 
-                    // 使用采样点计算距离更安全
+                    // [计算真实几何中心]
+                    gp_Pnt centerPnt = p1;
+                    centerPnt.Translate(gp_Vec(p1, p2) * 0.5);
+                    slotFeature.planeLocation = centerPnt; // 记录中心点
+
+                    // 轴线方向：基座法线 x 侧壁法线 (即槽的延伸方向)
+                    slotFeature.axis = gp_Ax1(centerPnt, baseNormal.Crossed(wallA->geometricParams.axisVector));
+
+                    // 计算宽度
                     gp_Pln planeB(wallB->geometricParams.locationPoint, wallB->geometricParams.axisVector);
                     slotFeature.width = planeB.Distance(p1);
 
+                    // 链接子特征
                     slotFeature.childAtomicFeatureIDs = {baseFeature->faceID, wallA->faceID, wallB->faceID};
 
                     // 标记消耗
@@ -576,7 +580,7 @@ namespace ASG
         const std::shared_ptr<AtomicFeature>& baseFeature,
         FeatureMap& featureMap)
     {
-        // 1. 基座检查
+        // 1. 基座检查：只要求是平面
         if (baseFeature->atomType != AtomType::PLANE) return false;
 
         std::vector<std::shared_ptr<AtomicFeature>> candidateWalls;
@@ -586,17 +590,23 @@ namespace ASG
         for (const auto& [neighborFaceID, continuityType] : baseFeature->adjacencyList)
         {
             if (continuityType != ContinuityType::C0) continue;
+
             auto it = featureMap.find(neighborFaceID);
             if (it == featureMap.end()) continue;
             auto neighbor = it->second;
 
             if (neighbor->isConsumed) continue;
             if (neighbor->atomType != AtomType::PLANE) continue;
+
+            // 2a. 几何检查：垂直
             if (!neighbor->geometricParams.axisVector.IsNormal(baseNormal, Constants::AngleTolerance)) continue;
 
-            // 基座有效性检查 (榫的顶面与侧壁应为凸连接/实体)
+            // 2b. [关键] 基座连接性检查
+            // 对于榫(Tongue)，基座是"顶面"，它与侧壁的夹角内应该是"实体" (凸连接)
             gp_Pnt pBase = GetFaceSamplePoint(baseFeature->brepFace);
             gp_Pnt pWall = GetFaceSamplePoint(neighbor->brepFace);
+
+            // 如果连接处 *不是* 实心的 (是空气)，跳过
             if (!IsMaterialBetween(pBase, pWall, partNode.brepShape))
             {
                 continue;
@@ -615,87 +625,73 @@ namespace ASG
                 const auto& wallA = candidateWalls[i];
                 const auto& wallB = candidateWalls[j];
 
-                // A. 法线反向平行
+                // 3a. 法线反向平行
                 if (!wallA->geometricParams.axisVector.IsOpposite(wallB->geometricParams.axisVector,
                                                                   Constants::AngleTolerance))
                 {
                     continue;
                 }
 
-                // B. 内部材质检测 (确保是实体)
-                gp_Pnt pWallA = GetFaceSamplePoint(wallA->brepFace);
-                gp_Pnt pWallB = GetFaceSamplePoint(wallB->brepFace);
+                // 3b. [核心] 内部材质检测
+                gp_Pnt p1 = GetFaceSamplePoint(wallA->brepFace);
+                gp_Pnt p2 = GetFaceSamplePoint(wallB->brepFace);
 
-                if (IsMaterialBetween(pWallA, pWallB, partNode.brepShape))
+                // 如果两壁连线中点 *有* 材料 (IsMaterial == true)，说明中间是实心的 -> 这是一个榫
+                if (IsMaterialBetween(p1, p2, partNode.brepShape))
                 {
-                    // ============================================================
-                    // [新增] 全局鲁棒性检查：根部连接检测 (Root Check)
-                    // 目的：区分"真榫"(凸特征)和"平板"(凸实体)。
-                    // 逻辑：真榫的侧壁必须至少有一个"凹"的邻居(连接到基体地板)。
-                    //       如果侧壁的所有邻居都是"凸"连接，那它就是一个孤立的块。
-                    // ============================================================
+                    // [增强] 根部连接检测 (Root Check)
+                    // 防止将整个零件基座识别为榫。真正的榫，其侧壁根部应连接到地板(凹连接)。
+                    // 只要检测到侧壁有任何一个"凹"的邻居，就认为它是特征，而不是基体。
+                    bool hasConcaveRoot = false;
 
-                    bool hasConcaveConnection = false;
-
-                    // 检查 WallA 的邻居
-                    for (const auto& [adjID, continuity] : wallA->adjacencyList)
-                    {
-                        if (adjID == baseFeature->faceID) continue; // 忽略顶面
+                    // 检查 WallA 的所有邻居
+                    for(const auto& [adjID, continuity] : wallA->adjacencyList) {
+                        if(adjID == baseFeature->faceID) continue; // 忽略顶面
                         auto it = featureMap.find(adjID);
-                        if (it == featureMap.end()) continue;
-
-                        // 采样并检查连接性质
-                        gp_Pnt pNeighbor = GetFaceSamplePoint(it->second->brepFace);
-                        // 如果两面中点是空气(false)，说明是凹连接 -> 真特征
-                        if (!IsMaterialBetween(pWallA, pNeighbor, partNode.brepShape))
-                        {
-                            hasConcaveConnection = true;
-                            break;
-                        }
-                    }
-
-                    // 如果 WallA 没找到，再给 WallB 一次机会
-                    if (!hasConcaveConnection)
-                    {
-                        for (const auto& [adjID, continuity] : wallB->adjacencyList)
-                        {
-                            if (adjID == baseFeature->faceID) continue;
-                            auto it = featureMap.find(adjID);
-                            if (it == featureMap.end()) continue;
-
+                        if(it != featureMap.end()) {
                             gp_Pnt pNeighbor = GetFaceSamplePoint(it->second->brepFace);
-                            if (!IsMaterialBetween(pWallB, pNeighbor, partNode.brepShape))
-                            {
-                                hasConcaveConnection = true;
+                            // 如果侧壁和某个邻居之间是空气(凹连接)，说明这是根部
+                            if(!IsMaterialBetween(p1, pNeighbor, partNode.brepShape)) {
+                                hasConcaveRoot = true;
                                 break;
                             }
                         }
                     }
-
-                    // [判决]
-                    if (!hasConcaveConnection)
-                    {
-                        // 这是一个孤立的长方体，不是榫特征
-                        // 应该跳过，留给后续的 FunctionalPlane 规则去处理
-                        continue;
+                    // 如果 WallA 没找到，查 WallB
+                    if(!hasConcaveRoot) {
+                        for(const auto& [adjID, continuity] : wallB->adjacencyList) {
+                            if(adjID == baseFeature->faceID) continue;
+                            auto it = featureMap.find(adjID);
+                            if(it != featureMap.end()) {
+                                gp_Pnt pNeighbor = GetFaceSamplePoint(it->second->brepFace);
+                                if(!IsMaterialBetween(p2, pNeighbor, partNode.brepShape)) {
+                                    hasConcaveRoot = true;
+                                    break;
+                                }
+                            }
+                        }
                     }
 
-                    // ============================================================
-                    // 匹配成功，创建特征
-                    // ============================================================
+                    // 如果没有凹根部，说明这是一个孤立的凸多面体(如平板基座)，跳过，留给FunctionalPlane处理
+                    if (!hasConcaveRoot) continue;
+
+                    // === 识别成功，创建榫特征 ===
                     CompositeFeature tongueFeature;
                     tongueFeature.partID = partNode.partID;
                     tongueFeature.type = CompositeFeatureType::TONGUE;
-                    tongueFeature.compositeID = partNode.partID + "_Tongue_" + std::to_string(
-                        partNode.compositeFeatures.size());
+                    tongueFeature.compositeID = partNode.partID + "_Tongue_" + std::to_string(partNode.compositeFeatures.size());
 
                     tongueFeature.planeNormal = baseNormal;
-                    tongueFeature.planeLocation = baseFeature->geometricParams.locationPoint;
-                    tongueFeature.axis = gp_Ax1(baseFeature->geometricParams.locationPoint,
-                                                baseNormal.Crossed(wallA->geometricParams.axisVector));
+
+                    // [计算真实几何中心]
+                    gp_Pnt centerPnt = p1;
+                    centerPnt.Translate(gp_Vec(p1, p2) * 0.5);
+                    tongueFeature.planeLocation = centerPnt;
+
+                    tongueFeature.axis = gp_Ax1(centerPnt, baseNormal.Crossed(wallA->geometricParams.axisVector));
 
                     gp_Pln planeB(wallB->geometricParams.locationPoint, wallB->geometricParams.axisVector);
-                    tongueFeature.width = planeB.Distance(pWallA); // 使用采样点
+                    tongueFeature.width = planeB.Distance(p1);
 
                     tongueFeature.childAtomicFeatureIDs = {baseFeature->faceID, wallA->faceID, wallB->faceID};
 
@@ -725,9 +721,13 @@ namespace ASG
 
     gp_Pnt ASGBuilder::GetFaceSamplePoint(const TopoDS_Face& face)
     {
+        Standard_Real uMin, uMax, vMin, vMax;
+        BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+
+        const double uMid = (uMin + uMax) / 2.0;
+        const double vMid = (vMin + vMax) / 2.0;
+
         const BRepAdaptor_Surface surfAdaptor(face);
-        const double uMid = (surfAdaptor.FirstUParameter() + surfAdaptor.LastUParameter()) / 2.0;
-        const double vMid = (surfAdaptor.FirstVParameter() + surfAdaptor.LastVParameter()) / 2.0;
         return surfAdaptor.Value(uMid, vMid);
     }
 
@@ -928,89 +928,58 @@ namespace ASG
     void ASGBuilder::MatchCoincident(const PartNode& nodeA, const CompositeFeature& featA,
                                      const PartNode& nodeB, const CompositeFeature& featB)
     {
-        // ========================================================================
-        // 鲁棒性升级：子特征遍历匹配 (Sub-Feature Traversal)
-        // 不再依赖复合特征的"摘要"信息(feat.planeNormal)，而是直接检查构成特征的每一个物理面。
-        // 这样无论面是"基座"还是"侧壁"，只要发生了物理接触，都能被捕获。
-        // ========================================================================
+        // [鲁棒升级] 子特征遍历匹配
+        // 不再只比较复合特征的摘要，而是深入比较每一个原子平面
 
-        // 辅助Lambda：根据ID查找原子特征
-        // 注意：为了性能，这只是一个简单的查找。在生产环境中，可以使用更高效的索引。
         auto getAtomicFeature = [&](const PartNode& node, const std::string& faceID) -> std::shared_ptr<AtomicFeature>
         {
-            for (const auto& af : node.atomicFeatures)
-            {
+            for (const auto& af : node.atomicFeatures) {
                 if (af->faceID == faceID) return af;
             }
             return nullptr;
         };
 
-        // ========================================================================
-        // 双重循环：遍历 A 的所有子面 vs B 的所有子面
-        // ========================================================================
+        // 双重循环遍历所有子特征
         for (const std::string& idA : featA.childAtomicFeatureIDs)
         {
             auto atomA = getAtomicFeature(nodeA, idA);
-            // 只处理平面类型的原子特征
             if (!atomA || atomA->atomType != AtomType::PLANE) continue;
 
-            // 1. 获取原子特征 A 的世界坐标系几何参数
-            // [重要] 我们使用原子特征自己的几何参数，而不是复合特征的摘要
+            // 获取原子特征的世界坐标几何
             gp_Dir localNormA = atomA->geometricParams.axisVector;
             gp_Pnt localLocA = atomA->geometricParams.locationPoint;
-
             gp_Dir globalNormA = TransformDir(localNormA, nodeA.transformation);
             gp_Pnt globalLocA = TransformPoint(localLocA, nodeA.transformation);
 
             for (const std::string& idB : featB.childAtomicFeatureIDs)
             {
                 auto atomB = getAtomicFeature(nodeB, idB);
-                // 只处理平面类型的原子特征
                 if (!atomB || atomB->atomType != AtomType::PLANE) continue;
 
-                // 2. 获取原子特征 B 的世界坐标系几何参数
                 gp_Dir localNormB = atomB->geometricParams.axisVector;
                 gp_Pnt localLocB = atomB->geometricParams.locationPoint;
-
                 gp_Dir globalNormB = TransformDir(localNormB, nodeB.transformation);
                 gp_Pnt globalLocB = TransformPoint(localLocB, nodeB.transformation);
 
-                // ====================================================================
-                // 3. 几何检查 (检查这两个具体的子面是否贴合)
-                // ====================================================================
-
-                // A. 法线反向平行 (IsOpposite)
+                // 1. 法线反向平行
                 if (!globalNormA.IsOpposite(globalNormB, Constants::AngleTolerance))
                 {
                     continue;
                 }
 
-                // B. 共面距离 (Coplanarity)
-                // 计算点 A 到平面 B 的距离
+                // 2. 共面距离
                 gp_Pln planeB(globalLocB, globalNormB);
-
-                // 检查距离是否在容差范围内
                 if (double dist = planeB.Distance(globalLocA); dist < Constants::DistanceTolerance)
                 {
-                    // C. [关键] 重叠检测 (Overlap Check)
-                    // 防止两个共面但相距很远的面被误判。
-                    // 我们计算这两个面的包围盒，看它们在空间中是否有交集。
-
-                    Bnd_Box boxA;
+                    // 3. 重叠检测
+                    Bnd_Box boxA, boxB;
                     BRepBndLib::Add(atomA->brepFace.Moved(TopLoc_Location(nodeA.transformation)), boxA);
-
-                    Bnd_Box boxB;
                     BRepBndLib::Add(atomB->brepFace.Moved(TopLoc_Location(nodeB.transformation)), boxB);
-
-                    // 稍微扩大包围盒以容忍边缘接触
-                    boxA.Enlarge(0.1);
-                    boxB.Enlarge(0.1);
+                    boxA.Enlarge(0.1); boxB.Enlarge(0.1);
 
                     if (!boxA.IsOut(boxB))
                     {
-                        // ================================================================
-                        // 匹配成功！生成约束
-                        // ================================================================
+                        // 匹配成功
                         AssemblyConstraint constraint;
                         constraint.type = ConstraintType::COINCIDENT;
                         constraint.partID_A = nodeA.partID;
@@ -1018,33 +987,24 @@ namespace ASG
                         constraint.partID_B = nodeB.partID;
                         constraint.featureID_B = featB.compositeID;
 
-                        // 4. 去重检查
-                        // 防止同一个复合特征对生成多条重复约束 (例如 A的子面1和B的子面1匹配，A的子面2和B的子面2也匹配)
+                        // 去重
                         bool exists = false;
-                        for (const auto& c : constraints_)
-                        {
+                        for (const auto& c : constraints_) {
                             if (c.type == ConstraintType::COINCIDENT &&
                                 c.featureID_A == constraint.featureID_A &&
-                                c.featureID_B == constraint.featureID_B)
-                            {
-                                exists = true;
-                                break;
+                                c.featureID_B == constraint.featureID_B) {
+                                exists = true; break;
                             }
                         }
 
-                        if (!exists)
-                        {
+                        if (!exists) {
                             constraints_.push_back(constraint);
-                            // 既然这对复合特征已经建立了一个接触约束，我们可以跳出循环，
-                            // 避免为同一对特征生成重复的 COINCIDENT 记录。
-                            // 使用 goto 跳出两层循环是最直接的方式。
-                            goto NextPair;
+                            goto NextPair; // 找到一个接触即可，跳出
                         }
                     }
                 }
             }
         }
-
     NextPair:;
     }
 
@@ -1056,8 +1016,8 @@ namespace ASG
         const PartNode* nodeSlot = (featA.type == CompositeFeatureType::SLOT) ? &nodeA : &nodeB;
         const PartNode* nodeTongue = (featA.type == CompositeFeatureType::SLOT) ? &nodeB : &nodeA;
 
-        const gp_Ax1 axisSlot = TransformAxis(slot->axis, nodeSlot->transformation);
-        const gp_Ax1 axisTongue = TransformAxis(tongue->axis, nodeTongue->transformation);
+        gp_Ax1 axisSlot = TransformAxis(slot->axis, nodeSlot->transformation);
+        gp_Ax1 axisTongue = TransformAxis(tongue->axis, nodeTongue->transformation);
 
         // 1. 轴线平行检查
         if (!axisSlot.Direction().IsParallel(axisTongue.Direction(), Constants::AngleTolerance))
@@ -1065,35 +1025,32 @@ namespace ASG
             return;
         }
 
-        // 2. 宽度匹配检查
-        if (std::abs(slot->width - tongue->width) > 1.0)
+        // 2. [修复] 宽度匹配检查 (放宽容差)
+        // 您的模型间隙总和为 1.0mm，浮点误差可能导致 > 1.0，这里放宽到 2.0mm 以确保安全
+        if (std::abs(slot->width - tongue->width) > 2.0)
         {
             return;
         }
 
-        // 3. [修正] 法线检查
-        const gp_Dir normSlot = TransformDir(slot->planeNormal, nodeSlot->transformation);
-        const gp_Dir normTongue = TransformDir(tongue->planeNormal, nodeTongue->transformation);
+        gp_Dir normSlot = TransformDir(slot->planeNormal, nodeSlot->transformation);
+        gp_Dir normTongue = TransformDir(tongue->planeNormal, nodeTongue->transformation);
 
-        // 错误修正：这里必须是 IsParallel (同向)，因为槽底和榫顶法线方向相同
+        // 3. [修复] 法线检查：必须是平行 (IsParallel)
+        // 槽底法线(朝外)和榫顶法线(朝外)在装配时方向是一致的
         if (!normSlot.IsParallel(normTongue, Constants::AngleTolerance))
         {
             return;
         }
 
-        // 4. [新增] 对齐检查 (防止错位匹配)
-        // 槽的"宽度方向" = 法线 x 轴线
+        // 4. 中心对齐检查
         gp_Dir widthDirSlot = normSlot.Crossed(axisSlot.Direction());
-        // 构建槽的中心平面
-        gp_Pln centerPlaneSlot(axisSlot.Location(), widthDirSlot);
+        gp_Pln centerPlaneSlot(axisSlot.Location(), widthDirSlot); // 过槽中心，法线垂直侧壁
 
-        // 检查榫的中心是否在槽的中心平面上
-        if (centerPlaneSlot.Distance(axisTongue.Location()) > 1.0) // 1mm 容差
-        {
+        // 检查榫的中心是否在槽的中心面上 (允许 1mm 偏心)
+        if (centerPlaneSlot.Distance(axisTongue.Location()) > 1.0) {
             return;
         }
 
-        // -> 匹配成功
         AssemblyConstraint constraint;
         constraint.type = ConstraintType::PRISMATIC;
         constraint.partID_A = nodeA.partID;
