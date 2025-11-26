@@ -320,6 +320,10 @@ namespace ASG
 
         for (auto& partNode : partNodes_)
         {
+            std::ranges::sort(partNode.atomicFeatures,
+                              [](const std::shared_ptr<AtomicFeature>& a, const std::shared_ptr<AtomicFeature>& b) {
+                                  return a->area > b->area; // <--- Descending (降序)
+                              });
             FeatureMap featureMap;
             for (const auto& f : partNode.atomicFeatures)
             {
