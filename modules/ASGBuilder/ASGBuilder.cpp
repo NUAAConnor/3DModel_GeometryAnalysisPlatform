@@ -144,7 +144,7 @@ namespace ASG
 
                 // Modern OCCT way to convert ExtendedString to UTF-8
                 // 现代 OCCT 转换 UTF-8 的方式
-                char* buffer = new char[extName.LengthOfCString() + 1];
+                auto buffer = new char[extName.LengthOfCString() + 1];
                 extName.ToUTF8CString(buffer);
                 partNode.partID = std::string(buffer);
                 delete[] buffer;

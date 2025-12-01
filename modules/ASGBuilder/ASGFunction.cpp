@@ -77,12 +77,12 @@ namespace ASG
                 return oss.str();
             }
 
-            std::string FormatDouble(const double value, const int precision = 6)
-            {
-                std::ostringstream oss;
-                oss << std::fixed << std::setprecision(precision) << value;
-                return oss.str();
-            }
+            // std::string FormatDouble(const double value, const int precision = 6)
+            // {
+            //     std::ostringstream oss;
+            //     oss << std::fixed << std::setprecision(precision) << value;
+            //     return oss.str();
+            // }
         }
     }
 
@@ -93,7 +93,7 @@ namespace ASG
 
     std::pair<AtomType, GeometricParams> ASGBuilder::IdentifyGeometryType(const TopoDS_Face& face)
     {
-        AtomType atomType = AtomType::OTHER;
+        auto atomType = AtomType::OTHER;
         GeometricParams params;
 
         // Get underlying geometric surface
@@ -245,7 +245,8 @@ namespace ASG
 
                 // Determine Continuity
                 // 确定连续性
-                switch (GeomAbs_Shape continuity = BRep_Tool::Continuity(edge, face, neighborFace))
+                GeomAbs_Shape continuity = BRep_Tool::Continuity(edge, face, neighborFace);
+                switch (continuity)
                 {
                 case GeomAbs_C0: adjInfo.continuityType = ContinuityType::C0;
                     break;
@@ -301,11 +302,11 @@ namespace ASG
             holeFeature.childAtomicFeatureIDs.push_back(feature->faceID);
         }
 
-        // --- 盲孔/通孔 检测 (简化版) ---
+        // --- 盲孔/通孔 检测---
         bool hasBottom = false;
         const double holeArea = M_PI * std::pow(holeFeature.nominalRadius, 2);
 
-        for (const auto& [neighborFaceID, continuityType] : feature->adjacencyList)
+        for (const auto& [neighborFaceID, continuityType, dihedralAngle] : feature->adjacencyList)
         {
             auto it = featureMap.find(neighborFaceID);
             if (it == featureMap.end()) continue;
@@ -398,7 +399,7 @@ namespace ASG
         }
 
         bool isAdjacentToCylinder = false;
-        for (const auto& [neighborFaceID, continuityType] : feature->adjacencyList)
+        for (const auto& [neighborFaceID, continuityType, dihedralAngle] : feature->adjacencyList)
         {
             if (continuityType == ContinuityType::C0)
             {
@@ -484,7 +485,7 @@ namespace ASG
         std::vector<std::shared_ptr<AtomicFeature>> candidateWalls;
         const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector;
 
-        for (const auto& [neighborFaceID, continuityType] : baseFeature->adjacencyList)
+        for (const auto& [neighborFaceID, continuityType, dihedralAngle] : baseFeature->adjacencyList)
         {
             if (continuityType != ContinuityType::C0) continue;
             auto it = featureMap.find(neighborFaceID);
@@ -583,7 +584,7 @@ namespace ASG
         const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector;
 
         // 2. 寻找侧壁
-        for (const auto& [neighborFaceID, continuityType] : baseFeature->adjacencyList)
+        for (const auto& [neighborFaceID, continuityType, dihedralAngle] : baseFeature->adjacencyList)
         {
             if (continuityType != ContinuityType::C0) continue;
             auto it = featureMap.find(neighborFaceID);
@@ -612,8 +613,8 @@ namespace ASG
         {
             for (size_t j = i + 1; j < candidateWalls.size(); ++j)
             {
-                auto wallA = candidateWalls[i];
-                auto wallB = candidateWalls[j];
+                const auto& wallA = candidateWalls[i];
+                const auto& wallB = candidateWalls[j];
 
                 // A. 法线反向平行
                 if (!wallA->geometricParams.axisVector.IsOpposite(wallB->geometricParams.axisVector,
@@ -632,13 +633,13 @@ namespace ASG
                     bool hasValidRoot = false;
 
                     auto CheckWallRoot = [&](const std::shared_ptr<AtomicFeature>& wall) -> bool {
-                        for (const auto& [adjID, continuity] : wall->adjacencyList) {
+                        for (const auto& [adjID, continuity, dihedralAngle] : wall->adjacencyList) {
                             if (adjID == baseFeature->faceID) continue; // 忽略顶面
 
                             auto itAdj = featureMap.find(adjID);
                             if (itAdj == featureMap.end()) continue;
 
-                            auto neighbor = itAdj->second;
+                            const auto neighbor = itAdj->second;
 
                             // 检查 1: 凹连接 (中间是空气)
                             gp_Pnt pNeighbor = GetFaceSamplePoint(neighbor->brepFace);

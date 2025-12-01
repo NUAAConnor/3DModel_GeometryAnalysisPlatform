@@ -218,6 +218,7 @@ namespace ASG
     {
         std::string neighborFaceID;
         ContinuityType continuityType = ContinuityType::UNKNOWN;
+        double dihedralAngle = 0.0;     //二面角 (弧度制)，范围 [0, PI]
     };
 
     /**
