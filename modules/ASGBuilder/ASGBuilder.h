@@ -126,8 +126,6 @@ namespace ASG
         SHAFT, // 轴 (凸出圆柱)
         FUNCTIONAL_PLANE, // 功能平面 (装配贴合面)
         STEP_PLANE, // 台阶面 (与孔/轴相邻的平面)
-        SLOT, // 槽 (由平面组成的凹槽)
-        TONGUE, // 榫 (由平面组成的凸出部分)
     };
 
     /**
@@ -149,9 +147,16 @@ namespace ASG
     {
         COAXIAL, // 同轴 (孔-轴)
         COINCIDENT, // 贴合 (面-面)
-        PRISMATIC, // 棱柱配合 (键-槽)
         OFFSET // 距离 (面-面有间距)
     };
+
+
+
+
+    // ============================================================================
+    // Data Structures / 数据结构
+    // ============================================================================
+
 
     /**
      * @brief Assembly Constraint Structure
@@ -178,19 +183,12 @@ namespace ASG
                 break;
             case ConstraintType::COINCIDENT: typeStr = "COINCIDENT";
                 break;
-            case ConstraintType::PRISMATIC: typeStr = "PRISMATIC";
-                break;
             case ConstraintType::OFFSET: typeStr = "OFFSET";
                 break;
             }
             return "[" + typeStr + "] " + partID_A + ":" + featureID_A + " <--> " + partID_B + ":" + featureID_B;
         }
     };
-
-
-    // ============================================================================
-    // Data Structures / 数据结构
-    // ============================================================================
 
     /**
      * @brief Geometric Parameters for various shapes
@@ -208,6 +206,9 @@ namespace ASG
         double semiAngle = 0.0; // Cone semi-angle
         double majorRadius = 0.0; // Torus
         double minorRadius = 0.0; // Torus
+        // [新增] 预计算的曲率特征 (用于 GNN 输入)
+        // [NEW] Pre-computed curvature feature (Mean Curvature approximation)
+        double curvature = 0.0;
     };
 
     /**
@@ -218,7 +219,7 @@ namespace ASG
     {
         std::string neighborFaceID;
         ContinuityType continuityType = ContinuityType::UNKNOWN;
-        double dihedralAngle = 0.0;     //二面角 (弧度制)，范围 [0, PI]
+        double dihedralAngle = 0.0; //二面角 (弧度制)，范围 [0, PI]
     };
 
     /**
@@ -321,22 +322,29 @@ namespace ASG
 
     // [新增] 专门用于传输给 Python/GNN 的扁平化图数据结构
     // [NEW] Flattened Graph Data Structure for Python/GNN Bridge
-    struct DeepLearningGraphData {
-        // Node Features (N x D)
-        std::vector<int> nodeTypes;        // One-hot encoding source
-        std::vector<double> nodeAreas;     // Normalized area
-        std::vector<double> nodeCurvatures; // Approx. curvature value
-        std::vector<double> nodeCentroids;  // x, y, z flattened
+    struct DeepLearningGraphData
+    {
+        // --- Node Features (节点特征) ---
+        // Shape: [NumNodes]
+        std::vector<int> nodeTypes;        // Feature 1: AtomType (One-hot source)
+        std::vector<double> nodeAreas;     // Feature 2: Surface Area
+        std::vector<double> nodeCurvatures;// Feature 3: Approx. Mean Curvature
+        // Shape: [NumNodes * 3] -> Flattened [x1, y1, z1, x2, y2, z2...]
+        std::vector<double> nodeCentroids; // Feature 4: Centroid (x,y,z)
 
-        // Edge Index (2 x E) - COO format for PyTorch Geometric
-        std::vector<int> edgeSource;
-        std::vector<int> edgeTarget;
+        // --- Edge Index (边索引) ---
+        // Shape: [2, NumEdges] -> separated into Source and Target vectors
+        std::vector<int> edgeSource;       // Source Node Index
+        std::vector<int> edgeTarget;       // Target Node Index
 
-        // Edge Attributes (E x F)
-        std::vector<double> edgeAngles;    // Dihedral angles (rad)
-        std::vector<int> edgeContinuity;   // C0, C1, C2 encoded
+        // --- Edge Attributes (边属性) ---
+        // Shape: [NumEdges]
+        std::vector<double> edgeAngles;    // Attribute 1: Dihedral Angle (radians)
+        std::vector<int> edgeContinuity;   // Attribute 2: Continuity Type (Enum int)
+
+        // Helper to check if empty
+        [[nodiscard]] bool IsEmpty() const { return nodeTypes.empty(); }
     };
-
 
 
     // ============================================================================
@@ -597,33 +605,6 @@ namespace ASG
          */
         static bool RecognizeShaftFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature, FeatureMap& featureMap);
 
-
-        /**
-         * @brief Recognize slot feature (concave channel)
-         * 识别槽特征（凹陷通道）
-         * @details Rule: Base plane (concave) + 2+ perpendicular wall planes (concave) with parallel opposite walls
-         * 规则：基准平面（凹陷）+ 2个以上垂直侧壁平面（凹陷），具有平行对立侧壁
-         * @param partNode 输入：待分析的零件节点引用 / Part node reference to analyze
-         * @param baseFeature 输入：槽基准原子特征 / Base atomic feature candidate for slot
-         * @param featureMap 输入：特征映射，便于通过 ID 获取原子特征 / Feature map keyed by ID
-         * @return 输出：识别成功返回 true，否则返回 false / true if slot recognized, false otherwise
-         */
-        static bool RecognizeSlotFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& baseFeature, FeatureMap& featureMap);
-
-        /**
-         * @brief Recognize tongue feature (convex protrusion)
-         * 识别榫特征（凸出突起）
-         * @details Rule: Base plane (convex/neutral) + 2+ perpendicular wall planes (convex/neutral) with parallel opposite walls
-         * 规则：基准平面（凸出/中性）+ 至少两组互相平行的侧壁平面（凸出/中性）
-         * @param partNode 输入：目标零件节点引用 / Part node under inspection
-         * @param baseFeature 输入：榫的基面原子特征 / Base atomic feature candidate for tongue
-         * @param featureMap 输入：特征映射表 / Map providing lookup by feature ID
-         * @return 输出：识别成功返回 true，否则返回 false / true when a tongue feature is created
-         */
-        static bool RecognizeTongueFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& baseFeature, FeatureMap& featureMap);
-
-
-
         /**
          * @brief Recognize step plane feature (plane adjacent to hole/shaft)
          * 识别台阶面特征（与孔/轴相邻的平面）
@@ -659,8 +640,6 @@ namespace ASG
                           const PartNode& nodeB, const CompositeFeature& featB);
         void MatchCoincident(const PartNode& nodeA, const CompositeFeature& featA,
                              const PartNode& nodeB, const CompositeFeature& featB);
-        void MatchPrismatic(const PartNode& nodeA, const CompositeFeature& featA,
-                            const PartNode& nodeB, const CompositeFeature& featB);
         static gp_Ax1 TransformAxis(const gp_Ax1& localAxis, const gp_Trsf& trsf);
         static gp_Pnt TransformPoint(const gp_Pnt& localPnt, const gp_Trsf& trsf);
         static gp_Dir TransformDir(const gp_Dir& localDir, const gp_Trsf& trsf);

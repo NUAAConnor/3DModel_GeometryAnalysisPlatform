@@ -100,6 +100,9 @@ namespace ASG
         auto atomType = AtomType::OTHER;
         GeometricParams params;
 
+        // 默认曲率为 0 (对于平面等)
+        //params.curvature = 0.0;
+
         // Get underlying geometric surface
         // 获取底层几何曲面
         Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
@@ -108,7 +111,7 @@ namespace ASG
             return {atomType, params};
         }
 
-        bool isReversed = (face.Orientation() == TopAbs_REVERSED);
+        bool isReversed = face.Orientation() == TopAbs_REVERSED;
 
         // 1. Plane / 平面
         if (auto plane = Handle(Geom_Plane)::DownCast(surface))
@@ -118,6 +121,8 @@ namespace ASG
             gp_Dir naturalNormal = gp_plane.Axis().Direction();
             params.axisVector = isReversed ? naturalNormal.Reversed() : naturalNormal;
             params.locationPoint = gp_plane.Location();
+            // 默认曲率为 0 (对于平面等)
+            params.curvature = 0.0;
         }
         // 2. Cylinder / 圆柱面
         else if (auto cylinder = Handle(Geom_CylindricalSurface)::DownCast(surface))
@@ -127,6 +132,7 @@ namespace ASG
             params.axisVector = gp_cyl.Axis().Direction();
             params.locationPoint = gp_cyl.Axis().Location();
             params.radius = gp_cyl.Radius();
+            if (params.radius > 1e-6) params.curvature = 1.0 / params.radius;
         }
         // 3. Cone / 圆锥面
         else if (auto cone = Handle(Geom_ConicalSurface)::DownCast(surface))
@@ -137,6 +143,7 @@ namespace ASG
             params.locationPoint = gp_cone.Axis().Location();
             params.radius = gp_cone.RefRadius();
             params.semiAngle = gp_cone.SemiAngle();
+            if (params.radius > 1e-6) params.curvature = 1.0 / params.radius;
         }
         // 4. Sphere / 球面
         else if (auto sphere = Handle(Geom_SphericalSurface)::DownCast(surface))
@@ -145,6 +152,7 @@ namespace ASG
             gp_Sphere gp_sphere = sphere->Sphere();
             params.locationPoint = gp_sphere.Location();
             params.radius = gp_sphere.Radius();
+            if (params.radius > 1e-6) params.curvature = 1.0 / params.radius;
         }
         // 5. Torus / 环面
         else if (auto torus = Handle(Geom_ToroidalSurface)::DownCast(surface))
@@ -155,6 +163,7 @@ namespace ASG
             params.locationPoint = gp_torus.Axis().Location();
             params.majorRadius = gp_torus.MajorRadius();
             params.minorRadius = gp_torus.MinorRadius();
+            if (params.minorRadius > 1e-6) params.curvature = 1.0 / params.minorRadius;
         }
         // 6. BSpline / B样条
         else if (Handle(Geom_BSplineSurface)::DownCast(surface))
@@ -195,7 +204,7 @@ namespace ASG
                 // 中心在实体内 -> 表面向外凸 -> 凸 (例如轴)
                 return FormType::CONVEX;
             }
-            else if (state == TopAbs_OUT)
+            if (state == TopAbs_OUT)
             {
                 // Center outside solid -> Surface curves inward -> Concave (e.g., Hole)
                 // 中心在实体外 -> 表面向内凹 -> 凹 (例如孔)
@@ -224,7 +233,8 @@ namespace ASG
         gp_Pnt2d uv2 = c2->Value(midParam);
 
         // 辅助 Lambda：获取特定 UV 处的真实物理法线
-        auto GetCorrectedNormal = [](const TopoDS_Face& face, const gp_Pnt2d& uv) -> gp_Vec {
+        auto GetCorrectedNormal = [](const TopoDS_Face& face, const gp_Pnt2d& uv) -> gp_Vec
+        {
             BRepAdaptor_Surface surf(face);
             gp_Pnt p;
             gp_Vec d1u, d1v;
@@ -235,11 +245,12 @@ namespace ASG
             gp_Vec norm = d1u.Crossed(d1v);
 
             // 归一化与防微小值
-            if (norm.Magnitude() < 1e-9) return gp_Vec(0, 0, 1); // 奇异点保护
+            if (norm.Magnitude() < 1e-9) return {0, 0, 1}; // 奇异点保护
             norm.Normalize();
 
             // 关键：根据拓扑朝向修正法线方向
-            if (face.Orientation() == TopAbs_REVERSED) {
+            if (face.Orientation() == TopAbs_REVERSED)
+            {
                 norm.Reverse();
             }
             return norm;
@@ -317,10 +328,9 @@ namespace ASG
                 // 但为了 GNN 数据的完整性，建议对所有边都计算，因为制造误差可能导致 C1 实际上有微小夹角
                 adjInfo.dihedralAngle = ComputeEdgeDihedralAngle(edge, face, neighborFace);
 
-                // [可选] 打印调试信息，检查是否计算正确
+                // 打印调试信息，检查是否计算正确
                 std::cout << "Angle between " << faceID << " and " << adjInfo.neighborFaceID
-                          << ": " << (adjInfo.dihedralAngle * 180.0 / M_PI) << " deg" << std::endl;
-
+                    << ": " << (adjInfo.dihedralAngle * 180.0 / M_PI) << " deg" << std::endl;
 
 
                 adjacencyList.push_back(adjInfo);
@@ -537,241 +547,6 @@ namespace ASG
         return (classifier.State() == TopAbs_IN);
     }
 
-    bool ASGBuilder::RecognizeSlotFeature(
-        PartNode& partNode,
-        const std::shared_ptr<AtomicFeature>& baseFeature,
-        FeatureMap& featureMap)
-    {
-        if (baseFeature->atomType != AtomType::PLANE) return false;
-
-        std::vector<std::shared_ptr<AtomicFeature>> candidateWalls;
-        const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector;
-
-        for (const auto& [neighborFaceID, continuityType, dihedralAngle] : baseFeature->adjacencyList)
-        {
-            if (continuityType != ContinuityType::C0) continue;
-            auto it = featureMap.find(neighborFaceID);
-            if (it == featureMap.end()) continue;
-            auto neighbor = it->second;
-
-            if (neighbor->isConsumed) continue;
-            if (neighbor->atomType != AtomType::PLANE) continue;
-            if (!neighbor->geometricParams.axisVector.IsNormal(baseNormal, Constants::AngleTolerance)) continue;
-
-            gp_Pnt pBase = GetFaceSamplePoint(baseFeature->brepFace);
-            gp_Pnt pWall = GetFaceSamplePoint(neighbor->brepFace);
-            if (IsMaterialBetween(pBase, pWall, partNode.brepShape)) continue;
-
-            candidateWalls.push_back(neighbor);
-        }
-
-        if (candidateWalls.size() < 2) return false;
-
-        // [STRATEGY UPDATE] Max Area Selection
-        double maxPairArea = -1.0;
-        std::shared_ptr<AtomicFeature> bestWallA = nullptr;
-        std::shared_ptr<AtomicFeature> bestWallB = nullptr;
-
-        for (size_t i = 0; i < candidateWalls.size(); ++i)
-        {
-            for (size_t j = i + 1; j < candidateWalls.size(); ++j)
-            {
-                const auto& wallA = candidateWalls[i];
-                const auto& wallB = candidateWalls[j];
-
-                if (!wallA->geometricParams.axisVector.IsOpposite(wallB->geometricParams.axisVector,
-                                                                  Constants::AngleTolerance))
-                {
-                    continue;
-                }
-
-                gp_Pnt p1 = GetFaceSamplePoint(wallA->brepFace);
-                gp_Pnt p2 = GetFaceSamplePoint(wallB->brepFace);
-
-                if (!IsMaterialBetween(p1, p2, partNode.brepShape))
-                {
-                    double currentArea = wallA->area + wallB->area;
-                    if (currentArea > maxPairArea)
-                    {
-                        maxPairArea = currentArea;
-                        bestWallA = wallA;
-                        bestWallB = wallB;
-                    }
-                }
-            }
-        }
-
-        if (bestWallA != nullptr && bestWallB != nullptr)
-        {
-            CompositeFeature slotFeature;
-            slotFeature.partID = partNode.partID;
-            slotFeature.type = CompositeFeatureType::SLOT;
-            slotFeature.compositeID = partNode.partID + "_Slot_" + std::to_string(partNode.compositeFeatures.size());
-
-            slotFeature.planeNormal = baseNormal;
-
-            gp_Pnt p1 = GetFaceSamplePoint(bestWallA->brepFace);
-            gp_Pnt p2 = GetFaceSamplePoint(bestWallB->brepFace);
-            gp_Pnt centerPnt = p1;
-            centerPnt.Translate(gp_Vec(p1, p2) * 0.5);
-            slotFeature.planeLocation = centerPnt;
-
-            slotFeature.axis = gp_Ax1(centerPnt, baseNormal.Crossed(bestWallA->geometricParams.axisVector));
-
-            gp_Pln planeB(bestWallB->geometricParams.locationPoint, bestWallB->geometricParams.axisVector);
-            slotFeature.width = planeB.Distance(p1);
-
-            slotFeature.childAtomicFeatureIDs = {baseFeature->faceID, bestWallA->faceID, bestWallB->faceID};
-
-            baseFeature->isConsumed = true;
-            bestWallA->isConsumed = true;
-            bestWallB->isConsumed = true;
-
-            partNode.compositeFeatures.push_back(slotFeature);
-            return true;
-        }
-
-        return false;
-    }
-
-    bool ASGBuilder::RecognizeTongueFeature(
-        PartNode& partNode,
-        const std::shared_ptr<AtomicFeature>& baseFeature,
-        FeatureMap& featureMap)
-    {
-        // 1. 基座检查
-        if (baseFeature->atomType != AtomType::PLANE) return false;
-
-        std::vector<std::shared_ptr<AtomicFeature>> candidateWalls;
-        const gp_Dir& baseNormal = baseFeature->geometricParams.axisVector;
-
-        // 2. 寻找侧壁
-        for (const auto& [neighborFaceID, continuityType, dihedralAngle] : baseFeature->adjacencyList)
-        {
-            if (continuityType != ContinuityType::C0) continue;
-            auto it = featureMap.find(neighborFaceID);
-            if (it == featureMap.end()) continue;
-            auto neighbor = it->second;
-
-            if (neighbor->isConsumed) continue;
-            if (neighbor->atomType != AtomType::PLANE) continue;
-            if (!neighbor->geometricParams.axisVector.IsNormal(baseNormal, Constants::AngleTolerance)) continue;
-
-            gp_Pnt pBase = GetFaceSamplePoint(baseFeature->brepFace);
-            gp_Pnt pWall = GetFaceSamplePoint(neighbor->brepFace);
-            if (!IsMaterialBetween(pBase, pWall, partNode.brepShape)) continue;
-
-            candidateWalls.push_back(neighbor);
-        }
-
-        if (candidateWalls.size() < 2) return false;
-
-        // 3. 寻找最佳侧壁对
-        double maxWallArea = -1.0;
-        std::shared_ptr<AtomicFeature> bestWallA = nullptr;
-        std::shared_ptr<AtomicFeature> bestWallB = nullptr;
-
-        for (size_t i = 0; i < candidateWalls.size(); ++i)
-        {
-            for (size_t j = i + 1; j < candidateWalls.size(); ++j)
-            {
-                const auto& wallA = candidateWalls[i];
-                const auto& wallB = candidateWalls[j];
-
-                // A. 法线反向平行
-                if (!wallA->geometricParams.axisVector.IsOpposite(wallB->geometricParams.axisVector,
-                                                                  Constants::AngleTolerance))
-                {
-                    continue;
-                }
-
-                // B. 内部材质检测
-                gp_Pnt p1 = GetFaceSamplePoint(wallA->brepFace);
-                gp_Pnt p2 = GetFaceSamplePoint(wallB->brepFace);
-
-                if (IsMaterialBetween(p1, p2, partNode.brepShape))
-                {
-                    // C. [增强版] 根部连接检测
-                    bool hasValidRoot = false;
-
-                    auto CheckWallRoot = [&](const std::shared_ptr<AtomicFeature>& wall) -> bool {
-                        for (const auto& [adjID, continuity, dihedralAngle] : wall->adjacencyList) {
-                            if (adjID == baseFeature->faceID) continue; // 忽略顶面
-
-                            auto itAdj = featureMap.find(adjID);
-                            if (itAdj == featureMap.end()) continue;
-
-                            const auto neighbor = itAdj->second;
-
-                            // 检查 1: 凹连接 (中间是空气)
-                            gp_Pnt pNeighbor = GetFaceSamplePoint(neighbor->brepFace);
-                            gp_Pnt pWallSample = GetFaceSamplePoint(wall->brepFace);
-
-                            bool isConcave = !IsMaterialBetween(pWallSample, pNeighbor, partNode.brepShape);
-
-                            if (isConcave) {
-                                // 检查 2: [关键新增] 法线同向性检查
-                                // 真正的"根部"(Floor)法线应该与"顶面"(Base)法线大致同向(Dot > 0)
-                                // 如果是长方体的底面，法线是反向的，这里会排除掉
-                                const gp_Dir& rootNormal = neighbor->geometricParams.axisVector;
-                                if (rootNormal.Dot(baseNormal) > 0.1) { // 宽松一点，大于0即可
-                                    return true; // 找到了合法的根部！
-                                }
-                            }
-                        }
-                        return false;
-                    };
-
-                    // 只要有一侧有合法的根部，就认为是特征
-                    if (CheckWallRoot(wallA) || CheckWallRoot(wallB)) {
-                        hasValidRoot = true;
-                    }
-
-                    if (!hasValidRoot) continue;
-
-                    // 记录最佳候选
-                    double currentArea = wallA->area + wallB->area;
-                    if (currentArea > maxWallArea) {
-                        maxWallArea = currentArea;
-                        bestWallA = wallA;
-                        bestWallB = wallB;
-                    }
-                }
-            }
-        }
-
-        if (bestWallA != nullptr && bestWallB != nullptr) {
-            CompositeFeature tongueFeature;
-            tongueFeature.partID = partNode.partID;
-            tongueFeature.type = CompositeFeatureType::TONGUE;
-            tongueFeature.compositeID = partNode.partID + "_Tongue_" + std::to_string(partNode.compositeFeatures.size());
-
-            tongueFeature.planeNormal = baseNormal;
-
-            gp_Pnt p1 = GetFaceSamplePoint(bestWallA->brepFace);
-            gp_Pnt p2 = GetFaceSamplePoint(bestWallB->brepFace);
-            gp_Pnt centerPnt = p1;
-            centerPnt.Translate(gp_Vec(p1, p2) * 0.5);
-            tongueFeature.planeLocation = centerPnt;
-
-            tongueFeature.axis = gp_Ax1(centerPnt, baseNormal.Crossed(bestWallA->geometricParams.axisVector));
-
-            gp_Pln planeB(bestWallB->geometricParams.locationPoint, bestWallB->geometricParams.axisVector);
-            tongueFeature.width = planeB.Distance(p1);
-
-            tongueFeature.childAtomicFeatureIDs = {baseFeature->faceID, bestWallA->faceID, bestWallB->faceID};
-
-            baseFeature->isConsumed = true;
-            bestWallA->isConsumed = true;
-            bestWallB->isConsumed = true;
-
-            partNode.compositeFeatures.push_back(tongueFeature);
-            return true;
-        }
-
-        return false;
-    }
-
 
     // ============================================================================
     // Utilities / 工具函数
@@ -937,24 +712,14 @@ namespace ASG
                     MatchCoaxial(nodeA, featA, nodeB, featB);
                 }
 
-                const bool isPlanarA = (featA.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
-                    featA.type == CompositeFeatureType::STEP_PLANE ||
-                    featA.type == CompositeFeatureType::TONGUE ||
-                    featA.type == CompositeFeatureType::SLOT);
-                const bool isPlanarB = (featB.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
-                    featB.type == CompositeFeatureType::STEP_PLANE ||
-                    featB.type == CompositeFeatureType::TONGUE ||
-                    featB.type == CompositeFeatureType::SLOT);
+                const bool isPlanarA = featA.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
+                    featA.type == CompositeFeatureType::STEP_PLANE;;
+                const bool isPlanarB = featB.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
+                    featB.type == CompositeFeatureType::STEP_PLANE;
 
                 if (isPlanarA && isPlanarB)
                 {
                     MatchCoincident(nodeA, featA, nodeB, featB);
-                }
-
-                if ((featA.type == CompositeFeatureType::SLOT && featB.type == CompositeFeatureType::TONGUE) ||
-                    (featA.type == CompositeFeatureType::TONGUE && featB.type == CompositeFeatureType::SLOT))
-                {
-                    MatchPrismatic(nodeA, featA, nodeB, featB);
                 }
             }
         }
@@ -1079,77 +844,83 @@ namespace ASG
     NextPair:;
     }
 
-    void ASGBuilder::MatchPrismatic(const PartNode& nodeA, const CompositeFeature& featA,
-                                    const PartNode& nodeB, const CompositeFeature& featB)
+
+    // 在 ASGBuilder.cpp 中添加
+
+    DeepLearningGraphData ASGBuilder::GetGraphDataForPart(const std::string& partID) const
     {
-        const CompositeFeature* slot = (featA.type == CompositeFeatureType::SLOT) ? &featA : &featB;
-        const CompositeFeature* tongue = (featA.type == CompositeFeatureType::SLOT) ? &featB : &featA;
+        DeepLearningGraphData data;
 
-        // [DEBUG] 打印尝试匹配的对
-        std::cout << "[DEBUG] Checking Prismatic Pair: " << slot->compositeID << " <--> " << tongue->compositeID << std::endl;
-
-        const PartNode* nodeSlot = (featA.type == CompositeFeatureType::SLOT) ? &nodeA : &nodeB;
-        const PartNode* nodeTongue = (featA.type == CompositeFeatureType::SLOT) ? &nodeB : &nodeA;
-
-        gp_Ax1 axisSlot = TransformAxis(slot->axis, nodeSlot->transformation);
-        gp_Ax1 axisTongue = TransformAxis(tongue->axis, nodeTongue->transformation);
-
-        // 1. 轴线平行检查
-        if (!axisSlot.Direction().IsParallel(axisTongue.Direction(), Constants::AngleTolerance))
+        // 1. 查找对应的 PartNode
+        const PartNode* targetNode = nullptr;
+        for (const auto& node : partNodes_)
         {
-            std::cout << "  [FAIL] Axis Not Parallel. Angle: " << axisSlot.Direction().Angle(axisTongue.Direction()) << std::endl;
-            return;
+            if (node.partID == partID)
+            {
+                targetNode = &node;
+                break;
+            }
         }
 
-        // 2. 宽度匹配检查
-        double widthDiff = std::abs(slot->width - tongue->width);
-        if (widthDiff > 2.0)
+        if (!targetNode)
         {
-            // [DEBUG] 如果这里失败，打印出来
-            std::cout << "  [FAIL] Width Mismatch. Slot: " << slot->width << ", Tongue: " << tongue->width << ", Diff: " << widthDiff <<
-                std::endl;
-            return;
+            std::cerr << "[Warning] GetGraphDataForPart: PartID '" << partID << "' not found." << std::endl;
+            return data;
         }
 
-        gp_Dir normSlot = TransformDir(slot->planeNormal, nodeSlot->transformation);
-        gp_Dir normTongue = TransformDir(tongue->planeNormal, nodeTongue->transformation);
-
-        // 3. 法线共线检查
-        bool isParallel = normSlot.IsParallel(normTongue, Constants::AngleTolerance);
-        bool isOpposite = normSlot.IsOpposite(normTongue, Constants::AngleTolerance);
-
-        if (!isParallel && !isOpposite)
+        // 2. 建立 FaceID 到 Index 的映射 (用于构建边索引)
+        // Map from unique FaceID string to 0-based integer index
+        std::map<std::string, int> idToIndex;
+        for (int i = 0; i < targetNode->atomicFeatures.size(); ++i)
         {
-            // [DEBUG] 如果这里失败，打印出来
-            std::cout << "  [FAIL] Normal Not Collinear. Angle: " << normSlot.Angle(normTongue) << std::endl;
-            return;
+            idToIndex[targetNode->atomicFeatures[i]->faceID] = i;
         }
 
-        // 4. 中心对齐检查
-        gp_Dir widthDirSlot = normSlot.Crossed(axisSlot.Direction());
-        gp_Pln centerPlaneSlot(axisSlot.Location(), widthDirSlot);
-        double dist = centerPlaneSlot.Distance(axisTongue.Location());
-
-        if (dist > 1.0)
+        // 3. 填充节点特征 (Node Features)
+        for (const auto& feat : targetNode->atomicFeatures)
         {
-            // [DEBUG] 如果这里失败，打印出来
-            std::cout << "  [FAIL] Center Misalignment. Dist: " << dist << std::endl;
-            std::cout << "    Slot Loc: " << axisSlot.Location().X() << "," << axisSlot.Location().Y() << "," << axisSlot.Location().Z() <<
-                std::endl;
-            std::cout << "    Tongue Loc: " << axisTongue.Location().X() << "," << axisTongue.Location().Y() << "," << axisTongue.Location()
-                .Z() << std::endl;
-            return;
+            // Feature 1: Type
+            data.nodeTypes.push_back(static_cast<int>(feat->atomType));
+
+            // Feature 2: Area
+            data.nodeAreas.push_back(feat->area);
+
+            // Feature 3: Curvature (Simple Approximation)
+            data.nodeCurvatures.push_back(feat->geometricParams.curvature);
+
+            // Feature 4: Centroid
+            const auto& loc = feat->geometricParams.locationPoint;
+            data.nodeCentroids.push_back(loc.X());
+            data.nodeCentroids.push_back(loc.Y());
+            data.nodeCentroids.push_back(loc.Z());
         }
 
-        // -> 匹配成功
-        AssemblyConstraint constraint;
-        constraint.type = ConstraintType::PRISMATIC;
-        constraint.partID_A = nodeA.partID;
-        constraint.featureID_A = featA.compositeID;
-        constraint.partID_B = nodeB.partID;
-        constraint.featureID_B = featB.compositeID;
-        constraints_.push_back(constraint);
+        // 4. 填充边特征 (Edge Attributes)
+        // 注意：这是有向图还是无向图？
+        // PyG 通常处理无向图需要双向边 (u->v 和 v->u)。
+        // 我们的 adjacencyList 已经包含了双向关系（如果 A 邻接 B，B 通常也邻接 A）。
+        for (const auto& feat : targetNode->atomicFeatures)
+        {
+            int srcIdx = idToIndex[feat->faceID];
 
-        std::cout << "  [SUCCESS] Prismatic Constraint Found!" << std::endl;
+            for (const auto& [neighborFaceID, continuityType, dihedralAngle] : feat->adjacencyList)
+            {
+                // 查找邻居索引
+                if (idToIndex.contains(neighborFaceID))
+                {
+                    int dstIdx = idToIndex[neighborFaceID];
+
+                    // 添加边索引 (COO 格式)
+                    data.edgeSource.push_back(srcIdx);
+                    data.edgeTarget.push_back(dstIdx);
+
+                    // 添加边属性
+                    data.edgeAngles.push_back(dihedralAngle);
+                    data.edgeContinuity.push_back(static_cast<int>(continuityType));
+                }
+            }
+        }
+
+        return data;
     }
 } // namespace ASG

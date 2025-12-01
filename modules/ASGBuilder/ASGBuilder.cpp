@@ -321,7 +321,8 @@ namespace ASG
         for (auto& partNode : partNodes_)
         {
             std::ranges::sort(partNode.atomicFeatures,
-                              [](const std::shared_ptr<AtomicFeature>& a, const std::shared_ptr<AtomicFeature>& b) {
+                              [](const std::shared_ptr<AtomicFeature>& a, const std::shared_ptr<AtomicFeature>& b)
+                              {
                                   return a->area > b->area; // <--- Descending (降序)
                               });
             FeatureMap featureMap;
@@ -337,8 +338,6 @@ namespace ASG
 
                 if (RecognizeHoleFeature(partNode, f, featureMap)) continue;
                 if (RecognizeShaftFeature(partNode, f, featureMap)) continue;
-                if (RecognizeSlotFeature(partNode, f, featureMap)) continue;
-                if (RecognizeTongueFeature(partNode, f, featureMap)) continue;
                 if (RecognizeStepPlaneFeature(partNode, f, featureMap)) continue;
                 if (RecognizeFunctionalPlaneFeature(partNode, f, featureMap)) continue;
             }
