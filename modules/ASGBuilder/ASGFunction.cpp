@@ -23,6 +23,10 @@
 #include <TopExp_Explorer.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+#include <Geom2d_Curve.hxx>
+#include <gp_Pnt2d.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <gp_Vec.hxx>
 
 // Standard Library
 // 标准库
@@ -202,6 +206,53 @@ namespace ASG
         return FormType::NEUTRAL;
     }
 
+
+    double ASGBuilder::ComputeEdgeDihedralAngle(const TopoDS_Edge& edge, const TopoDS_Face& f1, const TopoDS_Face& f2)
+    {
+        // 1. 获取边在两个面上的参数曲线范围
+        double first, last;
+        // 注意：虽然 edge 是共享的，但它在两个面上的 2D 曲线 (PCurve) 必须分别获取
+        Handle(Geom2d_Curve) c1 = BRep_Tool::CurveOnSurface(edge, f1, first, last);
+        Handle(Geom2d_Curve) c2 = BRep_Tool::CurveOnSurface(edge, f2, first, last);
+
+        // 如果边是退化的或几何丢失，返回 0
+        if (c1.IsNull() || c2.IsNull()) return 0.0;
+
+        // 2. 取参数中点进行采样
+        double midParam = (first + last) * 0.5;
+        gp_Pnt2d uv1 = c1->Value(midParam);
+        gp_Pnt2d uv2 = c2->Value(midParam);
+
+        // 辅助 Lambda：获取特定 UV 处的真实物理法线
+        auto GetCorrectedNormal = [](const TopoDS_Face& face, const gp_Pnt2d& uv) -> gp_Vec {
+            BRepAdaptor_Surface surf(face);
+            gp_Pnt p;
+            gp_Vec d1u, d1v;
+            // 计算切向量 D1
+            surf.D1(uv.X(), uv.Y(), p, d1u, d1v);
+
+            // 计算法线 (叉乘)
+            gp_Vec norm = d1u.Crossed(d1v);
+
+            // 归一化与防微小值
+            if (norm.Magnitude() < 1e-9) return gp_Vec(0, 0, 1); // 奇异点保护
+            norm.Normalize();
+
+            // 关键：根据拓扑朝向修正法线方向
+            if (face.Orientation() == TopAbs_REVERSED) {
+                norm.Reverse();
+            }
+            return norm;
+        };
+
+        // 3. 计算两个面的法线
+        gp_Vec n1 = GetCorrectedNormal(f1, uv1);
+        gp_Vec n2 = GetCorrectedNormal(f2, uv2);
+
+        // 4. 计算夹角 (返回范围 [0, PI])
+        return n1.Angle(n2);
+    }
+
     std::vector<AdjacencyInfo> ASGBuilder::AnalyzeTopologicalAdjacency(
         const TopoDS_Face& face,
         const std::string& faceID,
@@ -260,6 +311,17 @@ namespace ASG
                 default: adjInfo.continuityType = ContinuityType::UNKNOWN;
                     break;
                 }
+
+                // Compute Dihedral Angle
+                // 只有 C0 (尖锐) 边需要计算角度，C1/C2 理论上角度为 0 (或 PI，视定义而定)
+                // 但为了 GNN 数据的完整性，建议对所有边都计算，因为制造误差可能导致 C1 实际上有微小夹角
+                adjInfo.dihedralAngle = ComputeEdgeDihedralAngle(edge, face, neighborFace);
+
+                // [可选] 打印调试信息，检查是否计算正确
+                std::cout << "Angle between " << faceID << " and " << adjInfo.neighborFaceID
+                          << ": " << (adjInfo.dihedralAngle * 180.0 / M_PI) << " deg" << std::endl;
+
+
 
                 adjacencyList.push_back(adjInfo);
             }

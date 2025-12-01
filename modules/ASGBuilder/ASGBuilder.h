@@ -319,6 +319,26 @@ namespace ASG
         PartNode() = default;
     };
 
+    // [新增] 专门用于传输给 Python/GNN 的扁平化图数据结构
+    // [NEW] Flattened Graph Data Structure for Python/GNN Bridge
+    struct DeepLearningGraphData {
+        // Node Features (N x D)
+        std::vector<int> nodeTypes;        // One-hot encoding source
+        std::vector<double> nodeAreas;     // Normalized area
+        std::vector<double> nodeCurvatures; // Approx. curvature value
+        std::vector<double> nodeCentroids;  // x, y, z flattened
+
+        // Edge Index (2 x E) - COO format for PyTorch Geometric
+        std::vector<int> edgeSource;
+        std::vector<int> edgeTarget;
+
+        // Edge Attributes (E x F)
+        std::vector<double> edgeAngles;    // Dihedral angles (rad)
+        std::vector<int> edgeContinuity;   // C0, C1, C2 encoded
+    };
+
+
+
     // ============================================================================
     // Main Class: ASGBuilder
     // ============================================================================
@@ -430,6 +450,22 @@ namespace ASG
          */
         static void runTest();
 
+        /**
+        * @brief Check whether the midpoint of a segment between two points lies inside the solid
+        * 检查两点连线中点是否位于实体内部
+        * @details Used to distinguish slot vs. tongue by probing material occupancy
+        * 通过采样中点判断材料分布，用于区分槽/榫特征
+        * @param p1 输入：第一采样点 / First sample point
+        * @param p2 输入：第二采样点 / Second sample point
+        * @param solid 输入：待测试的实体 / Solid used for inside-outside test
+        * @return 输出：位于实体内部返回 true，否则返回 false / true if midpoint is inside the solid
+        */
+        static bool IsMaterialBetween(const gp_Pnt& p1, const gp_Pnt& p2, const TopoDS_Shape& solid);
+
+        // [新增] 获取用于深度学习的图数据
+        // [NEW] Get graph data formatted for PyTorch Geometric
+        [[nodiscard]] DeepLearningGraphData GetGraphDataForPart(const std::string& partID) const;
+
     private:
         // Internal logic helpers (Step 1)
         /**
@@ -504,6 +540,20 @@ namespace ASG
             const TopoDS_Face& face, const AtomType& atomType,
             const GeometricParams& geomParams, const TopoDS_Shape& parentSolid);
 
+
+        /**
+         * @brief Compute the dihedral angle (in radians) between two faces along a shared edge.
+         * 计算两个面在共享边处的二面角（弧度制）。
+         * Logic:
+         * 1. Sample the midpoint of the edge.
+         * 2. Get UV coordinates of this point on both faces.
+         * 3. Compute surface normals at UV points.
+         * 4. Correct normal direction based on face orientation.
+         * 5. Calculate angle between normals.
+         */
+        static double ComputeEdgeDihedralAngle(const TopoDS_Edge& edge, const TopoDS_Face& f1, const TopoDS_Face& f2);
+
+
         /**
          * @brief Analyze topological adjacency relationships
          * 分析拓扑邻接关系
@@ -572,17 +622,7 @@ namespace ASG
          */
         static bool RecognizeTongueFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& baseFeature, FeatureMap& featureMap);
 
-        /**
-         * @brief Check whether the midpoint of a segment between two points lies inside the solid
-         * 检查两点连线中点是否位于实体内部
-         * @details Used to distinguish slot vs. tongue by probing material occupancy
-         * 通过采样中点判断材料分布，用于区分槽/榫特征
-         * @param p1 输入：第一采样点 / First sample point
-         * @param p2 输入：第二采样点 / Second sample point
-         * @param solid 输入：待测试的实体 / Solid used for inside-outside test
-         * @return 输出：位于实体内部返回 true，否则返回 false / true if midpoint is inside the solid
-         */
-        static bool IsMaterialBetween(const gp_Pnt& p1, const gp_Pnt& p2, const TopoDS_Shape& solid);
+
 
         /**
          * @brief Recognize step plane feature (plane adjacent to hole/shaft)
