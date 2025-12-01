@@ -145,7 +145,7 @@ namespace ASG
      */
     enum class ConstraintType
     {
-        COAXIAL, // 同轴 (孔-轴)
+        COAXIAL, // 同轴 (孔-轴/孔-孔)
         COINCIDENT, // 贴合 (面-面)
         OFFSET // 距离 (面-面有间距)
     };

@@ -706,8 +706,16 @@ namespace ASG
         {
             for (const auto& featB : nodeB.compositeFeatures)
             {
-                if ((featA.type == CompositeFeatureType::HOLE && featB.type == CompositeFeatureType::SHAFT) ||
-                    (featA.type == CompositeFeatureType::SHAFT && featB.type == CompositeFeatureType::HOLE))
+                bool isCoaxialCandidate = false;
+
+                // Case 1: Hole - Shaft (Fit)
+                if (featA.type == CompositeFeatureType::HOLE && featB.type == CompositeFeatureType::SHAFT ||
+                    featA.type == CompositeFeatureType::SHAFT && featB.type == CompositeFeatureType::HOLE ||
+                    featA.type == CompositeFeatureType::HOLE && featB.type == CompositeFeatureType::HOLE)
+                {
+                    isCoaxialCandidate = true;
+                }
+                if (isCoaxialCandidate)
                 {
                     MatchCoaxial(nodeA, featA, nodeB, featB);
                 }
