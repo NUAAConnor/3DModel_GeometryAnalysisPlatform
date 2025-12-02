@@ -26,7 +26,7 @@ py::dict ConvertGraphDataToDict(const DeepLearningGraphData& data)
     return d;
 }
 
-PYBIND11_MODULE(ASGBuilder, m)
+PYBIND11_MODULE(ASGCore, m)
 {
     m.doc() = "ASGBuilder Python Interface";
 

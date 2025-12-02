@@ -21,11 +21,11 @@ add_library(ASGBuilder
 
 # Set Python executable path
 # Note: Adjust this path to match your Python environment
-set(Python_EXECUTABLE "D:/anaconda3/envs/Python_Projects/CodeReproduction/python.exe")
+set(Python_EXECUTABLE "D:/anaconda3/envs/Python_Projects/ModelsDeepLearning/python.exe")
 
 # Find Python package
 # Note: Ensure conda environment is activated before running CMake
-find_package(Python 3.14.0 COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(Python 3.11.14 COMPONENTS Interpreter Development.Module REQUIRED)
 
 # Auto-detect pybind11 path using Python interpreter
 # Executes "python -m pybind11 --cmakedir" to obtain the accurate path
@@ -81,7 +81,7 @@ target_link_libraries(ASGBuilder_Py PRIVATE ASGBuilder)
 # Set output name for the Python module
 # This renames the generated .pyd (Windows) or .so (Linux) file to "ASGBuilder"
 # Allows direct import in Python: import ASGBuilder
-set_target_properties(ASGBuilder_Py PROPERTIES OUTPUT_NAME "ASGBuilder")
+set_target_properties(ASGBuilder_Py PROPERTIES OUTPUT_NAME "ASGCore")
 
 # ===================================================================
 # ASGBuilder Library Configuration
