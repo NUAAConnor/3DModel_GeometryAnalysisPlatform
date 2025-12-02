@@ -16,6 +16,27 @@ add_library(ASGBuilder
 )
 
 # ===================================================================
+# ASGBuilder Library Configuration
+# ===================================================================
+
+# Define include directories
+# PUBLIC: Appends this directory to the include path of this target
+# AND any target that links against it (e.g., the main app)
+target_include_directories(ASGBuilder PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Link dependencies
+# Link against OpenCASCADE libraries defined in the root CMakeLists.txt
+target_link_libraries(ASGBuilder PUBLIC
+        ${OpenCASCADE_LIBRARIES}
+)
+
+# Enforce C++20 standard specifically for this target
+target_compile_features(ASGBuilder PUBLIC cxx_std_20)
+
+
+# ===================================================================
 # Python Binding Configuration
 # ===================================================================
 
@@ -83,22 +104,3 @@ target_link_libraries(ASGBuilder_Py PRIVATE ASGBuilder)
 # Allows direct import in Python: import ASGBuilder
 set_target_properties(ASGBuilder_Py PROPERTIES OUTPUT_NAME "ASGCore")
 
-# ===================================================================
-# ASGBuilder Library Configuration
-# ===================================================================
-
-# Define include directories
-# PUBLIC: Appends this directory to the include path of this target
-# AND any target that links against it (e.g., the main app)
-target_include_directories(ASGBuilder PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-# Link dependencies
-# Link against OpenCASCADE libraries defined in the root CMakeLists.txt
-target_link_libraries(ASGBuilder PUBLIC
-        ${OpenCASCADE_LIBRARIES}
-)
-
-# Enforce C++20 standard specifically for this target
-target_compile_features(ASGBuilder PUBLIC cxx_std_20)

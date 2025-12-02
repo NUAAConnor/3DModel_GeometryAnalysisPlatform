@@ -37,7 +37,7 @@ get_filename_component(DEPS_ROOT "${CMAKE_SOURCE_DIR}/../dependencies" ABSOLUTE)
 message(STATUS "Dependencies Root: ${DEPS_ROOT}")
 
 # Set OCCT and 3rdparty paths
-set(OpenCASCADE_DIR "${DEPS_ROOT}/occt-install/cmake")
+set(OpenCASCADE_DIR "${DEPS_ROOT}/occt-install-d/cmake")
 set(THIRDPARTY_DIR  "${DEPS_ROOT}/3rdparty")
 
 # Validate OCCT path existence
