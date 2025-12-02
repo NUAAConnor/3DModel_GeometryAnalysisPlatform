@@ -515,7 +515,10 @@ namespace ASG
 
             // g. Placeholder for centroid coordinates (flattened x, y, z)
             //    For real GNN usage, implement proper centroid computation
-            data.nodeCentroids.push_back(0.0);
+            gp_Pnt center = GetFaceSamplePoint(feat->brepFace); // 或者使用 geometricParams.locationPoint
+            data.nodeCentroids.push_back(center.X());
+            data.nodeCentroids.push_back(center.Y());
+            data.nodeCentroids.push_back(center.Z());
 
             idx++;
         }

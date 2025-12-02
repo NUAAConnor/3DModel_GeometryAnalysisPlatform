@@ -830,7 +830,7 @@ namespace ASG
 
         // b. Check if normals are opposite (mating planes face each other)
         const double dotProduct = normalA_world.Dot(normalB_world);
-        if (dotProduct > -0.9)
+        if (dotProduct > -0.99)
         {
             return; // Normals are not sufficiently opposite
         }
