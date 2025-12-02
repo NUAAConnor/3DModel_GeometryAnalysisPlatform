@@ -201,7 +201,7 @@ namespace ASG
             {
                 radialDir.Normalize();
                 // Move halfway towards the axis
-                testPoint = samplePoint.Translated(-localRadius * 0.5 * radialDir);
+                testPoint = samplePoint.Translated(-localRadius * Constants::ConcavityOffsetRatio * radialDir);
             }
             else
             {
@@ -217,7 +217,7 @@ namespace ASG
             if (toCenter.Magnitude() > 1e-9)
             {
                 toCenter.Normalize();
-                testPoint = samplePoint.Translated(geomParams.radius * 0.5 * toCenter);
+                testPoint = samplePoint.Translated(geomParams.radius * Constants::ConcavityOffsetRatio * toCenter);
             }
             else
             {
@@ -236,8 +236,8 @@ namespace ASG
             if (radialDir.Magnitude() > 1e-9) {
                 radialDir.Normalize();
                 // For torus, minor radius is the tube radius.
-                // We move inward by a fraction of the minor radius.
-                double offset = geomParams.minorRadius > 1e-6 ? geomParams.minorRadius * 0.5 : 0.1;
+                // Move inward by a fraction of the minor radius.
+                double offset = geomParams.minorRadius > 1e-6 ? geomParams.minorRadius * Constants::ConcavityOffsetRatio : 0.1;
                 testPoint = samplePoint.Translated(-offset * radialDir);
             } else {
                 return FormType::NEUTRAL;
@@ -333,13 +333,14 @@ namespace ASG
     std::vector<AdjacencyInfo> ASGBuilder::AnalyzeTopologicalAdjacency(
         const TopoDS_Face& face,
         const std::string& faceID,
-        const TopoDS_Shape& parentSolid)
+        const TopoDS_Shape& parentSolid,
+        const TopTools_IndexedDataMapOfShapeListOfShape& edgeToFacesMap)
     {
         std::vector<AdjacencyInfo> adjacencyList;
 
         // a. Build a global edge-to-faces map for the entire solid
-        TopTools_IndexedDataMapOfShapeListOfShape edgeToFacesMap;
-        TopExp::MapShapesAndAncestors(parentSolid, TopAbs_EDGE, TopAbs_FACE, edgeToFacesMap);
+        //TopTools_IndexedDataMapOfShapeListOfShape edgeToFacesMap;
+        //TopExp::MapShapesAndAncestors(parentSolid, TopAbs_EDGE, TopAbs_FACE, edgeToFacesMap);
 
         // b. Iterate over all edges belonging to the current face
         for (TopExp_Explorer edgeExplorer(face, TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
@@ -367,38 +368,27 @@ namespace ASG
                 }
             }
 
-            if (!foundNeighbor)
-            {
-                continue;
-            }
+            if (!foundNeighbor) continue;
+
 
             // e. Look up the neighbor's ID from the global face map
             const auto it = faceIDMap_.find(neighborFace);
-            if (it == faceIDMap_.end())
-            {
-                continue;
-            }
+            if (it == faceIDMap_.end()) continue;
             const std::string neighborFaceID = it->second;
 
             // f. Skip self-references
-            if (neighborFaceID == faceID)
-            {
-                continue;
-            }
+            if (neighborFaceID == faceID) continue;
 
             // g. Compute the dihedral angle between the two faces
             const double dihedralAngle = ComputeEdgeDihedralAngle(edge, face, neighborFace);
 
             // h. Classify continuity based on the dihedral angle
             auto continuity = ContinuityType::UNKNOWN;
-            constexpr double C0_threshold = 0.1; // ~5.7 degrees
-            constexpr double C1_threshold = 0.01; // ~0.57 degrees
-
-            if (dihedralAngle > C0_threshold)
+            if (dihedralAngle > Constants::C0_Continuity_Threshold)
             {
                 continuity = ContinuityType::C0; // Sharp edge
             }
-            else if (dihedralAngle > C1_threshold)
+            else if (dihedralAngle > Constants::C1_Continuity_Threshold)
             {
                 continuity = ContinuityType::C1; // Tangent blend
             }
@@ -740,17 +730,7 @@ namespace ASG
 
     bool ASGBuilder::CheckBoundingBoxCollision(const PartNode& nodeA, const PartNode& nodeB)
     {
-        // a. Compute axis-aligned bounding boxes for both parts in world space
-        Bnd_Box boxA, boxB;
-        BRepBndLib::Add(nodeA.brepShape, boxA);
-        BRepBndLib::Add(nodeB.brepShape, boxB);
-
-        // b. Apply part transformations to the bounding boxes
-        boxA.SetGap(Constants::DistanceTolerance);
-        boxB.SetGap(Constants::DistanceTolerance);
-
-        // c. Test for intersection
-        return !boxA.IsOut(boxB);
+        return !nodeA.worldBoundingBox.IsOut(nodeB.worldBoundingBox);
     }
 
     // ============================================================================
@@ -818,7 +798,7 @@ namespace ASG
         const double radiusDiff = std::abs(radiusA - radiusB);
 
         // f. Allow small clearance for coaxial fit (typically 0.01 to 0.5 mm)
-        if (radiusDiff > 0.5)
+        if (radiusDiff > Constants::CoaxialRadiusDiffTolerance)
         {
             return;
         }
@@ -867,7 +847,7 @@ namespace ASG
 
         // e. Perform a simple bounding box overlap check in the plane projection
         //    (This is a simplified test; a full polygon intersection would be more accurate)
-        constexpr double overlapTolerance = 1.0; // mm
+        //constexpr double overlapTolerance = 1.0; // mm
 
         // f. Record the coincident constraint
         AssemblyConstraint constraint;

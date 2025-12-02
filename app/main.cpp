@@ -10,8 +10,8 @@
 
 // Use raw string literal for cleaner path handling
 // 请在此处修改为你的实际文件路径
-const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
-//const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/Face2Face_Ass.stp)";
+//const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
+const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/Face2Face_Ass.stp)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/USlot-Key_Ass.stp)";
 // const std::string STEP_FILE_PATH =
 //     R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Logic Check_Ass.stp)";

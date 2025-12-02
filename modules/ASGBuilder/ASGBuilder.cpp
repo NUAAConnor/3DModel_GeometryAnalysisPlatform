@@ -11,6 +11,8 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <algorithm>
+#include <ranges>
 
 // OpenCASCADE STEP & XDE Headers
 #include <Bnd_Box.hxx>
@@ -137,13 +139,19 @@ namespace ASG
             partNode.brepShape = shape;
             partNode.transformation = transformation;
 
+            // World Bounding Box
+            BRepBndLib::Add(partNode.brepShape, partNode.worldBoundingBox);
+            partNode.worldBoundingBox.SetGap(Constants::DistanceTolerance);
+            partNode.worldBoundingBox = partNode.worldBoundingBox.Transformed(transformation);
+
+
+
             // Generate Part ID (UTF-8 Support)
             if (Handle(TDataStd_Name) nameAttr; label.FindAttribute(TDataStd_Name::GetID(), nameAttr))
             {
                 const TCollection_ExtendedString extName = nameAttr->Get();
 
                 // Modern OCCT way to convert ExtendedString to UTF-8
-                // 现代 OCCT 转换 UTF-8 的方式
                 auto buffer = new char[extName.LengthOfCString() + 1];
                 extName.ToUTF8CString(buffer);
                 partNode.partID = std::string(buffer);
@@ -186,6 +194,9 @@ namespace ASG
         partNode.atomicFeatures.clear();
         faceIDMap_.clear();
 
+        TopTools_IndexedDataMapOfShapeListOfShape edgeToFacesMap;
+        TopExp::MapShapesAndAncestors(solid, TopAbs_EDGE, TopAbs_FACE, edgeToFacesMap);
+
         int faceIndex = 0;
 
         // 1. Create and Identify Features
@@ -210,7 +221,7 @@ namespace ASG
 
             feature->formType = DetermineConcavity(face, type, params, solid);
             feature->area = ComputeFaceArea(face);
-            if (feature->area < 0.001) feature->isFunctional = false;
+            if (feature->area < Constants::FaceAreaThreshold) feature->isFunctional = false;
 
             partNode.atomicFeatures.push_back(feature);
         }
@@ -218,7 +229,7 @@ namespace ASG
         // 2. Analyze Adjacency
         for (const auto& feature : partNode.atomicFeatures)
         {
-            feature->adjacencyList = AnalyzeTopologicalAdjacency(feature->brepFace, feature->faceID, solid);
+            feature->adjacencyList = AnalyzeTopologicalAdjacency(feature->brepFace, feature->faceID, solid, edgeToFacesMap);
         }
     }
 
@@ -323,8 +334,9 @@ namespace ASG
             std::ranges::sort(partNode.atomicFeatures,
                               [](const std::shared_ptr<AtomicFeature>& a, const std::shared_ptr<AtomicFeature>& b)
                               {
-                                  return a->area > b->area; // <--- Descending (降序)
+                                  return a->area > b->area; // Descending (降序)
                               });
+
             FeatureMap featureMap;
             for (const auto& f : partNode.atomicFeatures)
             {

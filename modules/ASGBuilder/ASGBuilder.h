@@ -35,6 +35,7 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <Bnd_Box.hxx>
 
 // Geometry & Math
 #include <gp_Pnt.hxx>
@@ -60,17 +61,14 @@ namespace ASG
 
     namespace Constants
     {
-        /**
-         * @brief Distance tolerance used for radius comparisons and bounding-box enlargement
-         * @details Empirically tuned for STEP assemblies modeled in millimeters to keep feature grouping robust
-         */
-        constexpr double DistanceTolerance = 1e-6;
-
-        /**
-         * @brief Angular tolerance (radians) for axis, normal, and direction comparisons
-         * @details Prevents false-negative matches when aligning features under floating-point noise
-         */
-        constexpr double AngleTolerance = 1e-6;
+        constexpr double DistanceTolerance = 1e-6;         // Distance tolerance used for radius comparisons and bounding-box enlargement
+        constexpr double AngleTolerance = 1e-6;            // Angular tolerance (radians) for axis, normal, and direction comparisons
+        constexpr double FaceAreaThreshold = 0.001;        // Minimum area to be considered functional
+        constexpr double CoaxialRadiusDiffTolerance = 0.5; // Max radius difference for coaxial fit
+        constexpr double CoincidentOverlapTolerance = 1.0; // Bounding box overlap tolerance for planes
+        constexpr double ConcavityOffsetRatio = 0.5;       // Ratio to move probe point
+        constexpr double C0_Continuity_Threshold = 0.1;    // Radians (~5.7 deg)
+        constexpr double C1_Continuity_Threshold = 0.01;   // Radians (~0.57 deg)
     }
 
     // ============================================================================
@@ -283,6 +281,7 @@ namespace ASG
         std::string partID;
         TopoDS_Shape brepShape;
         gp_Trsf transformation;
+        Bnd_Box worldBoundingBox;
 
         // Use shared_ptr to prevent pointer invalidation when vector resizes
         std::vector<std::shared_ptr<AtomicFeature>> atomicFeatures;
@@ -470,11 +469,13 @@ namespace ASG
          * @param face input: face under analysis
          * @param faceID input: identifier associated with the face
          * @param parentSolid input: solid needed for edge-to-face mapping
+         * @param edgeToFacesMap input: pre-computed map of edges to incident faces
          * @return output: vector of AdjacencyInfo entries
          */
         std::vector<AdjacencyInfo> AnalyzeTopologicalAdjacency(
             const TopoDS_Face& face, const std::string& faceID,
-            const TopoDS_Shape& parentSolid);
+            const TopoDS_Shape& parentSolid,
+            const TopTools_IndexedDataMapOfShapeListOfShape& edgeToFacesMap);
 
         // Internal logic helpers (Step 3)
         // Using shared_ptr for map values to prevent pointer invalidation
