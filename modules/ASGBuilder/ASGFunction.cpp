@@ -107,6 +107,10 @@ namespace ASG
             const gp_Pln pln = plane->Pln();
             params.locationPoint = pln.Location();
             params.axisVector = pln.Axis().Direction();
+            if (face.Orientation() == TopAbs_REVERSED)
+            {
+                params.axisVector.Reverse();
+            }
         }
         else if (const Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(surf))
         {

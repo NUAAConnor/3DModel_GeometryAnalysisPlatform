@@ -145,7 +145,6 @@ namespace ASG
             partNode.worldBoundingBox = partNode.worldBoundingBox.Transformed(transformation);
 
 
-
             // Generate Part ID (UTF-8 Support)
             if (Handle(TDataStd_Name) nameAttr; label.FindAttribute(TDataStd_Name::GetID(), nameAttr))
             {
@@ -400,5 +399,77 @@ namespace ASG
         // Intentionally left empty or simple check.
         // Logic is now driven by main.cpp.
         std::cout << "ASGBuilder linked successfully. Ready for external commands." << std::endl;
+    }
+
+    // ============================================================================
+    // Deep Learning Data Export Implementation
+    // ============================================================================
+
+    DeepLearningGraphData ASGBuilder::GetGraphDataForPart(const std::string& partID) const
+    {
+        DeepLearningGraphData data = {};
+
+        // 1. Find the target part node
+        const PartNode* targetPart = nullptr;
+        for (const auto& node : partNodes_)
+        {
+            if (node.partID == partID)
+            {
+                targetPart = &node;
+                break;
+            }
+        }
+
+        if (!targetPart) return data; // Return empty if not found
+
+        // 2. Map faceID to numerical index (0, 1, 2...) for edge construction
+        std::map<std::string, int> faceIndexMap;
+        int idx = 0;
+
+        // 3. Build Nodes (Features)
+        for (const auto& feat : targetPart->atomicFeatures)
+        {
+            faceIndexMap[feat->faceID] = idx;
+
+            // Node Features: Type, Area, Curvature, etc.
+            data.nodeTypes.push_back(static_cast<int>(feat->atomType));
+            data.nodeAreas.push_back(feat->area);
+            data.nodeCurvatures.push_back(feat->geometricParams.curvature);
+
+            // Placeholder for Centroids (Flattened x,y,z if needed, or just magnitude for now)
+            // For a real GNN, you might want to push_back x, then y, then z.
+            // Here we just push 0.0 as a placeholder or distance from origin.
+            data.nodeCentroids.push_back(0.0);
+
+            idx++;
+        }
+
+        // 4. Build Edges (Adjacency)
+        // We iterate again to look up indices using the map we just built
+        for (const auto& feat : targetPart->atomicFeatures)
+        {
+            int srcIdx = faceIndexMap[feat->faceID];
+
+            for (const auto& [neighborFaceID, continuityType, dihedralAngle] : feat->adjacencyList)
+            {
+                // Check if neighbor exists in our map (it should, unless filtered out)
+                if (faceIndexMap.contains(neighborFaceID))
+                {
+                    int tgtIdx = faceIndexMap[neighborFaceID];
+
+                    data.edgeSource.push_back(srcIdx);
+                    data.edgeTarget.push_back(tgtIdx);
+
+                    // Edge Attributes: Dihedral Angle, Continuity Type
+                    data.edgeAngles.push_back(dihedralAngle);
+                    data.edgeContinuity.push_back(static_cast<int>(continuityType));
+                }
+            }
+        }
+
+        // 5. (Optional) Export Labels if available (Supervision Signal)
+        // Currently empty, but ready for logic insertion
+
+        return data;
     }
 } // namespace ASG
