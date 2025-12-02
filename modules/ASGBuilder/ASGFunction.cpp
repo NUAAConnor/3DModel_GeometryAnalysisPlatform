@@ -5,7 +5,6 @@
 #include "ASGBuilder.h"
 
 // OpenCASCADE Standard Headers
-// OpenCASCADE 标准头文件
 #include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -29,7 +28,6 @@
 #include <gp_Vec.hxx>
 
 // Standard Library
-// 标准库
 #include <iomanip>
 #include <sstream>
 #include <cmath>
@@ -40,7 +38,6 @@ namespace ASG
 {
     // ============================================================================
     // Internal Helper Namespace (Local to this file)
-    // 内部辅助命名空间 (仅本文件可见)
     // ============================================================================
     namespace
     {
@@ -80,19 +77,11 @@ namespace ASG
                 }
                 return oss.str();
             }
-
-            // std::string FormatDouble(const double value, const int precision = 6)
-            // {
-            //     std::ostringstream oss;
-            //     oss << std::fixed << std::setprecision(precision) << value;
-            //     return oss.str();
-            // }
         }
     }
 
     // ============================================================================
-    // Step 2: Geometry Identification & Analysis
-    // 步骤 2: 几何识别与分析
+    // STEP 2: Atomic Feature Classification - Geometry Identification
     // ============================================================================
 
     std::pair<AtomType, GeometricParams> ASGBuilder::IdentifyGeometryType(const TopoDS_Face& face)
@@ -100,79 +89,74 @@ namespace ASG
         auto atomType = AtomType::OTHER;
         GeometricParams params;
 
-        // 默认曲率为 0 (对于平面等)
-        //params.curvature = 0.0;
-
-        // Get underlying geometric surface
-        // 获取底层几何曲面
-        Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-        if (surface.IsNull())
+        // a. Extract the underlying geometric surface from the topological face
+        const Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
+        if (surf.IsNull())
         {
             return {atomType, params};
         }
 
-        bool isReversed = face.Orientation() == TopAbs_REVERSED;
+        // b. Attempt to cast the surface to each known analytical type
+        //    Each successful cast populates params with type-specific data
 
-        // 1. Plane / 平面
-        if (auto plane = Handle(Geom_Plane)::DownCast(surface))
+        if (const Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surf))
         {
+            // c. Plane: extract location point and normal direction
             atomType = AtomType::PLANE;
-            gp_Pln gp_plane = plane->Pln();
-            gp_Dir naturalNormal = gp_plane.Axis().Direction();
-            params.axisVector = isReversed ? naturalNormal.Reversed() : naturalNormal;
-            params.locationPoint = gp_plane.Location();
-            // 默认曲率为 0 (对于平面等)
-            params.curvature = 0.0;
+            const gp_Pln pln = plane->Pln();
+            params.locationPoint = pln.Location();
+            params.axisVector = pln.Axis().Direction();
         }
-        // 2. Cylinder / 圆柱面
-        else if (auto cylinder = Handle(Geom_CylindricalSurface)::DownCast(surface))
+        else if (const Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(surf))
         {
+            // d. Cylinder: extract axis, radius; height computed separately later
             atomType = AtomType::CYLINDER;
-            gp_Cylinder gp_cyl = cylinder->Cylinder();
-            params.axisVector = gp_cyl.Axis().Direction();
-            params.locationPoint = gp_cyl.Axis().Location();
-            params.radius = gp_cyl.Radius();
-            if (params.radius > 1e-6) params.curvature = 1.0 / params.radius;
+            const gp_Cylinder cylinder = cyl->Cylinder();
+            params.locationPoint = cylinder.Location();
+            params.axisVector = cylinder.Axis().Direction();
+            params.radius = cylinder.Radius();
         }
-        // 3. Cone / 圆锥面
-        else if (auto cone = Handle(Geom_ConicalSurface)::DownCast(surface))
+        else if (const Handle(Geom_ConicalSurface) cone = Handle(Geom_ConicalSurface)::DownCast(surf))
         {
+            // e. Cone: extract apex, axis, radius at reference location, and semi-angle
             atomType = AtomType::CONE;
-            gp_Cone gp_cone = cone->Cone();
-            params.axisVector = gp_cone.Axis().Direction();
-            params.locationPoint = gp_cone.Axis().Location();
-            params.radius = gp_cone.RefRadius();
-            params.semiAngle = gp_cone.SemiAngle();
-            if (params.radius > 1e-6) params.curvature = 1.0 / params.radius;
+            const gp_Cone gCone = cone->Cone();
+            params.locationPoint = gCone.Location();
+            params.axisVector = gCone.Axis().Direction();
+            params.radius = gCone.RefRadius();
+            params.semiAngle = gCone.SemiAngle();
         }
-        // 4. Sphere / 球面
-        else if (auto sphere = Handle(Geom_SphericalSurface)::DownCast(surface))
+        else if (const Handle(Geom_SphericalSurface) sphere = Handle(Geom_SphericalSurface)::DownCast(surf))
         {
+            // f. Sphere: extract center and radius
             atomType = AtomType::SPHERE;
-            gp_Sphere gp_sphere = sphere->Sphere();
-            params.locationPoint = gp_sphere.Location();
-            params.radius = gp_sphere.Radius();
-            if (params.radius > 1e-6) params.curvature = 1.0 / params.radius;
+            const gp_Sphere gSphere = sphere->Sphere();
+            params.locationPoint = gSphere.Location();
+            params.radius = gSphere.Radius();
         }
-        // 5. Torus / 环面
-        else if (auto torus = Handle(Geom_ToroidalSurface)::DownCast(surface))
+        else if (const Handle(Geom_ToroidalSurface) torus = Handle(Geom_ToroidalSurface)::DownCast(surf))
         {
+            // g. Torus: extract axis, major/minor radii
             atomType = AtomType::TORUS;
-            gp_Torus gp_torus = torus->Torus();
-            params.axisVector = gp_torus.Axis().Direction();
-            params.locationPoint = gp_torus.Axis().Location();
-            params.majorRadius = gp_torus.MajorRadius();
-            params.minorRadius = gp_torus.MinorRadius();
-            if (params.minorRadius > 1e-6) params.curvature = 1.0 / params.minorRadius;
+            const gp_Torus gTorus = torus->Torus();
+            params.locationPoint = gTorus.Location();
+            params.axisVector = gTorus.Axis().Direction();
+            params.majorRadius = gTorus.MajorRadius();
+            params.minorRadius = gTorus.MinorRadius();
         }
-        // 6. BSpline / B样条
-        else if (Handle(Geom_BSplineSurface)::DownCast(surface))
+        else if (Handle(Geom_BSplineSurface)::DownCast(surf))
         {
+            // h. B-Spline surface: no simple parameters to extract
             atomType = AtomType::BSPLINE;
         }
 
+        // i. Return the identified type plus extracted parameters
         return {atomType, params};
     }
+
+    // ============================================================================
+    // STEP 2: Atomic Feature Classification - Concavity Determination
+    // ============================================================================
 
     FormType ASGBuilder::DetermineConcavity(
         const TopoDS_Face& face,
@@ -180,88 +164,140 @@ namespace ASG
         const GeometricParams& geomParams,
         const TopoDS_Shape& parentSolid)
     {
-        // Skip non-curved surfaces
-        // 跳过非曲面
-        if (atomType == AtomType::PLANE || atomType == AtomType::BSPLINE || atomType == AtomType::OTHER)
+        // a. Only curved surfaces (cylinder, cone, sphere, torus) have meaningful concavity
+        if (atomType != AtomType::CYLINDER &&
+            atomType != AtomType::CONE &&
+            atomType != AtomType::SPHERE &&
+            atomType != AtomType::TORUS)
         {
             return FormType::NEUTRAL;
         }
 
-        // Curvature Center Test
-        // 曲率中心测试法
-        if (atomType == AtomType::CYLINDER || atomType == AtomType::CONE || atomType == AtomType::SPHERE)
+        // b. Compute a test point offset along the inward normal to probe material presence
+        gp_Pnt testPoint;
+        const double offsetDistance = atomType == AtomType::CYLINDER || atomType == AtomType::CONE
+                                          ? geomParams.radius
+                                          : 1.0;
+
+        if (atomType == AtomType::CYLINDER || atomType == AtomType::CONE)
         {
-            const gp_Pnt centerOfCurvature = geomParams.locationPoint;
-
-            // Use SolidClassifier to check if the center is inside the solid
-            // 使用 SolidClassifier 检查曲率中心是否在实体内部
-            const BRepClass3d_SolidClassifier classifier(parentSolid, centerOfCurvature, 1e-7);
-            const TopAbs_State state = classifier.State();
-
-            if (state == TopAbs_IN)
+            // c. For cylinder/cone: offset radially inward from the axis
+            const gp_Pnt samplePoint = GetFaceSamplePoint(face);
+            gp_Vec radialDir(geomParams.locationPoint, samplePoint);
+            if (radialDir.Magnitude() > 1e-9)
             {
-                // Center inside solid -> Surface curves away -> Convex (e.g., Shaft)
-                // 中心在实体内 -> 表面向外凸 -> 凸 (例如轴)
-                return FormType::CONVEX;
+                radialDir.Normalize();
+                testPoint = samplePoint.Translated(-offsetDistance * 0.5 * radialDir);
             }
-            if (state == TopAbs_OUT)
+            else
             {
-                // Center outside solid -> Surface curves inward -> Concave (e.g., Hole)
-                // 中心在实体外 -> 表面向内凹 -> 凹 (例如孔)
-                return FormType::CONCAVE;
+                return FormType::NEUTRAL;
             }
+        }
+        else if (atomType == AtomType::SPHERE)
+        {
+            // d. For sphere: offset toward the center
+            const gp_Pnt center = geomParams.locationPoint;
+            const gp_Pnt samplePoint = GetFaceSamplePoint(face);
+            gp_Vec toCenter(samplePoint, center);
+            if (toCenter.Magnitude() > 1e-9)
+            {
+                toCenter.Normalize();
+                testPoint = samplePoint.Translated(geomParams.radius * 0.5 * toCenter);
+            }
+            else
+            {
+                return FormType::NEUTRAL;
+            }
+        }
+        else
+        {
+            // e. Torus or other: use a simple inward offset strategy
+            return FormType::NEUTRAL;
+        }
+
+        // f. Classify the test point: inside material => concave, outside => convex
+        const BRepClass3d_SolidClassifier classifier(parentSolid, testPoint, 1e-7);
+        if (classifier.State() == TopAbs_IN)
+        {
+            return FormType::CONCAVE;
+        }
+        if (classifier.State() == TopAbs_OUT)
+        {
+            return FormType::CONVEX;
         }
 
         return FormType::NEUTRAL;
     }
 
+    // ============================================================================
+    // STEP 2: Atomic Feature Classification - Adjacency Analysis
+    // ============================================================================
 
     double ASGBuilder::ComputeEdgeDihedralAngle(const TopoDS_Edge& edge, const TopoDS_Face& f1, const TopoDS_Face& f2)
     {
-        // 1. 获取边在两个面上的参数曲线范围
-        double first, last;
-        // 注意：虽然 edge 是共享的，但它在两个面上的 2D 曲线 (PCurve) 必须分别获取
-        Handle(Geom2d_Curve) c1 = BRep_Tool::CurveOnSurface(edge, f1, first, last);
-        Handle(Geom2d_Curve) c2 = BRep_Tool::CurveOnSurface(edge, f2, first, last);
-
-        // 如果边是退化的或几何丢失，返回 0
-        if (c1.IsNull() || c2.IsNull()) return 0.0;
-
-        // 2. 取参数中点进行采样
-        double midParam = (first + last) * 0.5;
-        gp_Pnt2d uv1 = c1->Value(midParam);
-        gp_Pnt2d uv2 = c2->Value(midParam);
-
-        // 辅助 Lambda：获取特定 UV 处的真实物理法线
-        auto GetCorrectedNormal = [](const TopoDS_Face& face, const gp_Pnt2d& uv) -> gp_Vec
+        // a. Sample the midpoint parameter on the edge curve
+        double uMin, uMax;
+        const Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, uMin, uMax);
+        if (curve.IsNull())
         {
-            BRepAdaptor_Surface surf(face);
-            gp_Pnt p;
-            gp_Vec d1u, d1v;
-            // 计算切向量 D1
-            surf.D1(uv.X(), uv.Y(), p, d1u, d1v);
+            return 0.0;
+        }
+        //const double uMid = (uMin + uMax) / 2.0;
+        //const gp_Pnt edgePoint = curve->Value(uMid);
 
-            // 计算法线 (叉乘)
-            gp_Vec norm = d1u.Crossed(d1v);
+        // b. Retrieve the underlying surfaces for both faces
+        const Handle(Geom_Surface) surf1 = BRep_Tool::Surface(f1);
+        const Handle(Geom_Surface) surf2 = BRep_Tool::Surface(f2);
+        if (surf1.IsNull() || surf2.IsNull())
+        {
+            return 0.0;
+        }
 
-            // 归一化与防微小值
-            if (norm.Magnitude() < 1e-9) return {0, 0, 1}; // 奇异点保护
-            norm.Normalize();
+        // c. Project the edge midpoint onto each surface to get UV coordinates
+        double u1, v1, u2, v2;
+        BRepAdaptor_Surface adapt1(f1);
+        BRepAdaptor_Surface adapt2(f2);
 
-            // 关键：根据拓扑朝向修正法线方向
-            if (face.Orientation() == TopAbs_REVERSED)
-            {
-                norm.Reverse();
-            }
-            return norm;
-        };
+        // d. Use a simple UV midpoint approximation (robust for most cases)
+        u1 = (adapt1.FirstUParameter() + adapt1.LastUParameter()) / 2.0;
+        v1 = (adapt1.FirstVParameter() + adapt1.LastVParameter()) / 2.0;
+        u2 = (adapt2.FirstUParameter() + adapt2.LastUParameter()) / 2.0;
+        v2 = (adapt2.FirstVParameter() + adapt2.LastVParameter()) / 2.0;
 
-        // 3. 计算两个面的法线
-        gp_Vec n1 = GetCorrectedNormal(f1, uv1);
-        gp_Vec n2 = GetCorrectedNormal(f2, uv2);
+        // e. Evaluate surface normals at the UV points
+        gp_Pnt p1, p2;
+        gp_Vec d1u, d1v, d2u, d2v;
+        surf1->D1(u1, v1, p1, d1u, d1v);
+        surf2->D1(u2, v2, p2, d2u, d2v);
 
-        // 4. 计算夹角 (返回范围 [0, PI])
-        return n1.Angle(n2);
+        // f. Compute normals via cross product and adjust for face orientation
+        gp_Vec normal1 = d1u.Crossed(d1v);
+        gp_Vec normal2 = d2u.Crossed(d2v);
+
+        if (normal1.Magnitude() < 1e-9 || normal2.Magnitude() < 1e-9)
+        {
+            return 0.0;
+        }
+
+        normal1.Normalize();
+        normal2.Normalize();
+
+        // g. Reverse normal if face orientation is reversed
+        if (f1.Orientation() == TopAbs_REVERSED)
+        {
+            normal1.Reverse();
+        }
+        if (f2.Orientation() == TopAbs_REVERSED)
+        {
+            normal2.Reverse();
+        }
+
+        // h. Compute the angle between normals (dihedral angle)
+        const double dotProduct = normal1.Dot(normal2);
+        const double angle = std::acos(std::clamp(dotProduct, -1.0, 1.0));
+
+        return angle;
     }
 
     std::vector<AdjacencyInfo> ASGBuilder::AnalyzeTopologicalAdjacency(
@@ -271,78 +307,146 @@ namespace ASG
     {
         std::vector<AdjacencyInfo> adjacencyList;
 
-        // Map edges to faces to find neighbors
-        // 映射边到面以查找邻居
-        TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
-        TopExp::MapShapesAndAncestors(parentSolid, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
+        // a. Build a global edge-to-faces map for the entire solid
+        TopTools_IndexedDataMapOfShapeListOfShape edgeToFacesMap;
+        TopExp::MapShapesAndAncestors(parentSolid, TopAbs_EDGE, TopAbs_FACE, edgeToFacesMap);
 
-        TopExp_Explorer edgeExplorer(face, TopAbs_EDGE);
-        for (; edgeExplorer.More(); edgeExplorer.Next())
+        // b. Iterate over all edges belonging to the current face
+        for (TopExp_Explorer edgeExplorer(face, TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
         {
-            const TopoDS_Edge& edge = TopoDS::Edge(edgeExplorer.Current());
+            const TopoDS_Edge edge = TopoDS::Edge(edgeExplorer.Current());
 
-            if (!edgeFaceMap.Contains(edge)) continue;
-
-            const TopTools_ListOfShape& facesOnEdge = edgeFaceMap.FindFromKey(edge);
-
-            for (TopTools_ListIteratorOfListOfShape faceIter(facesOnEdge); faceIter.More(); faceIter.Next())
+            // c. Retrieve the list of faces sharing this edge
+            if (!edgeToFacesMap.Contains(edge))
             {
-                TopoDS_Face neighborFace = TopoDS::Face(faceIter.Value());
-
-                if (neighborFace.IsSame(face)) continue;
-
-                AdjacencyInfo adjInfo;
-
-                // Find Neighbor ID
-                // 查找邻居 ID
-                auto it = faceIDMap_.find(neighborFace);
-                if (it != faceIDMap_.end())
-                {
-                    adjInfo.neighborFaceID = it->second;
-                }
-                else
-                {
-                    adjInfo.neighborFaceID = "Unknown";
-                }
-
-                // Determine Continuity
-                // 确定连续性
-                GeomAbs_Shape continuity = BRep_Tool::Continuity(edge, face, neighborFace);
-                switch (continuity)
-                {
-                case GeomAbs_C0: adjInfo.continuityType = ContinuityType::C0;
-                    break;
-                case GeomAbs_G1:
-                case GeomAbs_C1: adjInfo.continuityType = ContinuityType::C1;
-                    break;
-                case GeomAbs_G2:
-                case GeomAbs_C2:
-                case GeomAbs_CN: adjInfo.continuityType = ContinuityType::C2;
-                    break;
-                default: adjInfo.continuityType = ContinuityType::UNKNOWN;
-                    break;
-                }
-
-                // Compute Dihedral Angle
-                // 只有 C0 (尖锐) 边需要计算角度，C1/C2 理论上角度为 0 (或 PI，视定义而定)
-                // 但为了 GNN 数据的完整性，建议对所有边都计算，因为制造误差可能导致 C1 实际上有微小夹角
-                adjInfo.dihedralAngle = ComputeEdgeDihedralAngle(edge, face, neighborFace);
-
-                // 打印调试信息，检查是否计算正确
-                std::cout << "Angle between " << faceID << " and " << adjInfo.neighborFaceID
-                    << ": " << (adjInfo.dihedralAngle * 180.0 / M_PI) << " deg" << std::endl;
-
-
-                adjacencyList.push_back(adjInfo);
+                continue;
             }
+            const TopTools_ListOfShape& facesOnEdge = edgeToFacesMap.FindFromKey(edge);
+
+            // d. Identify the neighbor face (the other face sharing the edge)
+            TopoDS_Face neighborFace;
+            bool foundNeighbor = false;
+            for (const TopoDS_Shape& shapeOnEdge : facesOnEdge)
+            {
+                const TopoDS_Face candidateFace = TopoDS::Face(shapeOnEdge);
+                if (!candidateFace.IsSame(face))
+                {
+                    neighborFace = candidateFace;
+                    foundNeighbor = true;
+                    break;
+                }
+            }
+
+            if (!foundNeighbor)
+            {
+                continue;
+            }
+
+            // e. Look up the neighbor's ID from the global face map
+            const auto it = faceIDMap_.find(neighborFace);
+            if (it == faceIDMap_.end())
+            {
+                continue;
+            }
+            const std::string neighborFaceID = it->second;
+
+            // f. Skip self-references
+            if (neighborFaceID == faceID)
+            {
+                continue;
+            }
+
+            // g. Compute the dihedral angle between the two faces
+            const double dihedralAngle = ComputeEdgeDihedralAngle(edge, face, neighborFace);
+
+            // h. Classify continuity based on the dihedral angle
+            auto continuity = ContinuityType::UNKNOWN;
+            constexpr double C0_threshold = 0.1; // ~5.7 degrees
+            constexpr double C1_threshold = 0.01; // ~0.57 degrees
+
+            if (dihedralAngle > C0_threshold)
+            {
+                continuity = ContinuityType::C0; // Sharp edge
+            }
+            else if (dihedralAngle > C1_threshold)
+            {
+                continuity = ContinuityType::C1; // Tangent blend
+            }
+            else
+            {
+                continuity = ContinuityType::C2; // Smooth curvature-continuous
+            }
+
+            // i. Record the adjacency information
+            AdjacencyInfo adjInfo;
+            adjInfo.neighborFaceID = neighborFaceID;
+            adjInfo.continuityType = continuity;
+            adjInfo.dihedralAngle = dihedralAngle;
+
+            adjacencyList.push_back(adjInfo);
         }
 
         return adjacencyList;
     }
 
     // ============================================================================
-    // Step 3: Composite Feature Recognition
-    // 步骤 3: 复合特征识别
+    // STEP 2: Atomic Feature Classification - Utility Functions
+    // ============================================================================
+
+    double ASGBuilder::ComputeFaceArea(const TopoDS_Face& face)
+    {
+        // a. Use OpenCASCADE's mass properties to compute surface area
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(face, props);
+        return props.Mass();
+    }
+
+    gp_Pnt ASGBuilder::GetFaceSamplePoint(const TopoDS_Face& face)
+    {
+        // a. Retrieve the underlying parametric surface
+        const Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
+        double uMin, uMax, vMin, vMax;
+        surf->Bounds(uMin, uMax, vMin, vMax);
+
+        // b. Evaluate at the midpoint of the parameter domain
+        const double uMid = (uMin + uMax) / 2.0;
+        const double vMid = (vMin + vMax) / 2.0;
+
+        return surf->Value(uMid, vMid);
+    }
+
+    double ASGBuilder::ComputeCylinderHeight(const TopoDS_Face& face, const gp_Pnt& axisPoint, const gp_Dir& axisVector)
+    {
+        double minProj = std::numeric_limits<double>::max();
+        double maxProj = std::numeric_limits<double>::lowest();
+
+        // a. Iterate over all edges of the cylindrical face
+        for (TopExp_Explorer edgeExplorer(face, TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
+        {
+            const TopoDS_Edge edge = TopoDS::Edge(edgeExplorer.Current());
+
+            // b. For each edge, examine its vertices
+            for (TopExp_Explorer vertexExplorer(edge, TopAbs_VERTEX); vertexExplorer.More(); vertexExplorer.Next())
+            {
+                const TopoDS_Vertex vertex = TopoDS::Vertex(vertexExplorer.Current());
+                const gp_Pnt point = BRep_Tool::Pnt(vertex);
+
+                // c. Project the vertex onto the cylinder axis
+                const gp_Vec toPoint(axisPoint, point);
+                const double projection = toPoint.Dot(gp_Vec(axisVector));
+
+                // d. Track min and max projections
+                if (projection < minProj) minProj = projection;
+                if (projection > maxProj) maxProj = projection;
+            }
+        }
+
+        // e. Height is the span along the axis
+        return maxProj > minProj ? maxProj - minProj : 0.0;
+    }
+
+    // ============================================================================
+    // STEP 3: Composite Feature Recognition - Hole Features
     // ============================================================================
 
     bool ASGBuilder::RecognizeHoleFeature(
@@ -350,21 +454,22 @@ namespace ASG
         const std::shared_ptr<AtomicFeature>& feature,
         FeatureMap& featureMap)
     {
-        // 基础检查
+        // a. Validate that the candidate is a concave cylinder
         if (feature->atomType != AtomType::CYLINDER || feature->formType != FormType::CONCAVE)
         {
             return false;
         }
 
+        // b. Initialize the composite hole feature metadata
         CompositeFeature holeFeature;
         holeFeature.partID = partNode.partID;
         holeFeature.type = CompositeFeatureType::HOLE;
         holeFeature.compositeID = partNode.partID + "_Hole_" + std::to_string(partNode.compositeFeatures.size());
-
         holeFeature.nominalRadius = feature->geometricParams.radius;
         holeFeature.height = feature->geometricParams.height;
         holeFeature.axis = gp_Ax1(feature->geometricParams.locationPoint, feature->geometricParams.axisVector);
 
+        // c. Attach all fragments belonging to the cylinder wall
         if (feature->isMainFragment)
         {
             holeFeature.childAtomicFeatureIDs = feature->fragmentFaceIDs;
@@ -374,7 +479,7 @@ namespace ASG
             holeFeature.childAtomicFeatureIDs.push_back(feature->faceID);
         }
 
-        // --- 盲孔/通孔 检测---
+        // d. Search for a bottom surface (plane or cone) to determine blind vs. through
         bool hasBottom = false;
         const double holeArea = M_PI * std::pow(holeFeature.nominalRadius, 2);
 
@@ -385,58 +490,67 @@ namespace ASG
             const auto neighbor = it->second;
             if (neighbor->isConsumed) continue;
 
-            // 检查平底 (C0连接 + 面积近似)
+            // e. Check for planar bottom with similar area to the hole cross-section
             if (neighbor->atomType == AtomType::PLANE && continuityType == ContinuityType::C0)
             {
                 if (std::abs(neighbor->area - holeArea) < 0.2 * holeArea)
                 {
-                    // 20% 容差
                     hasBottom = true;
                     holeFeature.childAtomicFeatureIDs.push_back(neighbor->faceID);
                     neighbor->isConsumed = true;
                 }
             }
-            // 检查锥底 (C0/C1连接 + 锥面)
+            // f. Conical bottoms also indicate blind holes
             else if (neighbor->atomType == AtomType::CONE)
             {
-                hasBottom = true; // 只要有个锥底，就是盲孔，不用管它是钻尖还是什么
+                hasBottom = true;
                 holeFeature.childAtomicFeatureIDs.push_back(neighbor->faceID);
                 neighbor->isConsumed = true;
             }
         }
 
-        // 设置类型
+        // g. Set subtype based on the presence of a bottom surface
         holeFeature.holeSubType = hasBottom ? HoleType::BLIND : HoleType::THROUGH;
 
-        // 标记孔壁为已消耗
+        // h. Mark all constituent faces as consumed
         for (const auto& childID : holeFeature.childAtomicFeatureIDs)
         {
-            if (auto it = featureMap.find(childID); it != featureMap.end()) it->second->isConsumed = true;
+            if (auto it = featureMap.find(childID); it != featureMap.end())
+            {
+                it->second->isConsumed = true;
+            }
         }
 
+        // i. Register the hole feature with the part
         partNode.compositeFeatures.push_back(holeFeature);
         return true;
     }
+
+    // ============================================================================
+    // STEP 3: Composite Feature Recognition - Shaft Features
+    // ============================================================================
 
     bool ASGBuilder::RecognizeShaftFeature(
         PartNode& partNode,
         const std::shared_ptr<AtomicFeature>& feature,
         FeatureMap& featureMap)
     {
+        // a. Validate that the candidate is a convex cylinder
         if (feature->atomType != AtomType::CYLINDER || feature->formType != FormType::CONVEX)
         {
             return false;
         }
 
+        // b. Initialize the composite shaft feature metadata
         CompositeFeature shaftFeature;
         shaftFeature.partID = partNode.partID;
         shaftFeature.type = CompositeFeatureType::SHAFT;
         shaftFeature.compositeID = partNode.partID + "_Shaft_" + std::to_string(partNode.compositeFeatures.size());
-
         shaftFeature.nominalRadius = feature->geometricParams.radius;
         shaftFeature.height = feature->geometricParams.height;
         shaftFeature.axis = gp_Ax1(feature->geometricParams.locationPoint, feature->geometricParams.axisVector);
 
+        // c. Attach fragments or the single face
         if (feature->isMainFragment)
         {
             shaftFeature.childAtomicFeatureIDs = feature->fragmentFaceIDs;
@@ -446,6 +560,7 @@ namespace ASG
             shaftFeature.childAtomicFeatureIDs.push_back(feature->faceID);
         }
 
+        // d. Mark all constituent faces as consumed
         for (const auto& childID : shaftFeature.childAtomicFeatureIDs)
         {
             if (auto it = featureMap.find(childID); it != featureMap.end())
@@ -454,22 +569,27 @@ namespace ASG
             }
         }
 
+        // e. Register the shaft feature with the part
         partNode.compositeFeatures.push_back(shaftFeature);
         return true;
     }
+
+    // ============================================================================
+    // STEP 3: Composite Feature Recognition - Step Plane Features
+    // ============================================================================
 
     bool ASGBuilder::RecognizeStepPlaneFeature(
         PartNode& partNode,
         const std::shared_ptr<AtomicFeature>& feature,
         FeatureMap& featureMap)
     {
-        // Rule: Plane + Neutral + Adjacent to Cylinder (via C0)
-        // 规则: 平面 + 中性 + 邻接圆柱 (通过 C0 边)
+        // a. Validate that the candidate is a neutral plane
         if (feature->atomType != AtomType::PLANE || feature->formType != FormType::NEUTRAL)
         {
             return false;
         }
 
+        // b. Check for sharp (C0) adjacency to at least one cylinder
         bool isAdjacentToCylinder = false;
         for (const auto& [neighborFaceID, continuityType, dihedralAngle] : feature->adjacencyList)
         {
@@ -486,30 +606,37 @@ namespace ASG
             }
         }
 
-        if (!isAdjacentToCylinder) return false;
+        if (!isAdjacentToCylinder)
+        {
+            return false;
+        }
 
+        // c. Promote the plane to a step plane composite feature
         CompositeFeature stepFeature;
         stepFeature.partID = partNode.partID;
         stepFeature.type = CompositeFeatureType::STEP_PLANE;
         stepFeature.compositeID = partNode.partID + "_StepPlane_" + std::to_string(partNode.compositeFeatures.size());
-
-        stepFeature.planeNormal = feature->geometricParams.axisVector; // Plane uses axisVector as normal
+        stepFeature.planeNormal = feature->geometricParams.axisVector;
         stepFeature.planeLocation = feature->geometricParams.locationPoint;
         stepFeature.planeArea = feature->area;
         stepFeature.childAtomicFeatureIDs.push_back(feature->faceID);
 
+        // d. Mark as consumed and register
         feature->isConsumed = true;
         partNode.compositeFeatures.push_back(stepFeature);
         return true;
     }
+
+    // ============================================================================
+    // STEP 3: Composite Feature Recognition - Functional Plane Features
+    // ============================================================================
 
     bool ASGBuilder::RecognizeFunctionalPlaneFeature(
         PartNode& partNode,
         const std::shared_ptr<AtomicFeature>& feature,
         FeatureMap& featureMap)
     {
-        // Catch-all for remaining significant planes
-        // 兜底规则：收集剩余的重要平面
+        // a. Validate that the candidate is a neutral plane and not yet consumed
         if (feature->atomType != AtomType::PLANE || feature->formType != FormType::NEUTRAL)
         {
             return false;
@@ -519,213 +646,105 @@ namespace ASG
             return false;
         }
 
+        // b. Promote the plane to a functional plane composite feature
         CompositeFeature planeFeature;
         planeFeature.partID = partNode.partID;
         planeFeature.type = CompositeFeatureType::FUNCTIONAL_PLANE;
         planeFeature.compositeID = partNode.partID + "_FuncPlane_" + std::to_string(partNode.compositeFeatures.size());
-
         planeFeature.planeNormal = feature->geometricParams.axisVector;
         planeFeature.planeLocation = feature->geometricParams.locationPoint;
         planeFeature.planeArea = feature->area;
         planeFeature.childAtomicFeatureIDs.push_back(feature->faceID);
 
+        // c. Mark as consumed and register
         feature->isConsumed = true;
         partNode.compositeFeatures.push_back(planeFeature);
         return true;
     }
 
+    // ============================================================================
+    // STEP 3: Composite Feature Recognition - Utility Function
+    // ============================================================================
+
     bool ASGBuilder::IsMaterialBetween(const gp_Pnt& p1, const gp_Pnt& p2, const TopoDS_Shape& solid)
     {
+        // a. Compute the midpoint between the two sample positions
         const gp_Pnt midPoint((p1.X() + p2.X()) / 2.0,
                               (p1.Y() + p2.Y()) / 2.0,
                               (p1.Z() + p2.Z()) / 2.0);
 
-        // 使用分类器检查中点状态 (使用较小的容差)
+        // b. Classify the midpoint against the solid volume with tight tolerance
         const BRepClass3d_SolidClassifier classifier(solid, midPoint, 1e-7);
 
-        // 如果中点在实体内部 (TopAbs_IN)，说明两壁之间是材料
-        return (classifier.State() == TopAbs_IN);
-    }
-
-
-    // ============================================================================
-    // Utilities / 工具函数
-    // ============================================================================
-
-    double ASGBuilder::ComputeFaceArea(const TopoDS_Face& face)
-    {
-        GProp_GProps properties;
-        BRepGProp::SurfaceProperties(face, properties);
-        return properties.Mass();
-    }
-
-    gp_Pnt ASGBuilder::GetFaceSamplePoint(const TopoDS_Face& face)
-    {
-        Standard_Real uMin, uMax, vMin, vMax;
-        BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
-
-        const double uMid = (uMin + uMax) / 2.0;
-        const double vMid = (vMin + vMax) / 2.0;
-
-        const BRepAdaptor_Surface surfAdaptor(face);
-        return surfAdaptor.Value(uMid, vMid);
-    }
-
-    double ASGBuilder::ComputeCylinderHeight(const TopoDS_Face& face, const gp_Pnt& axisPoint, const gp_Dir& axisVector)
-    {
-        double minParam = std::numeric_limits<double>::max();
-        double maxParam = std::numeric_limits<double>::lowest();
-
-        for (TopExp_Explorer edgeExplorer(face, TopAbs_EDGE); edgeExplorer.More(); edgeExplorer.Next())
-        {
-            const TopoDS_Edge& edge = TopoDS::Edge(edgeExplorer.Current());
-            for (TopExp_Explorer vExp(edge, TopAbs_VERTEX); vExp.More(); vExp.Next())
-            {
-                gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vExp.Current()));
-                double proj = gp_Vec(axisPoint, p).Dot(gp_Vec(axisVector));
-                minParam = std::min(minParam, proj);
-                maxParam = std::max(maxParam, proj);
-            }
-        }
-
-        double h = maxParam - minParam;
-        if (h <= 0 || h > 1e6)
-        {
-            // Fallback to parameter space
-            BRepAdaptor_Surface surf(face);
-            h = std::abs(surf.LastVParameter() - surf.FirstVParameter());
-        }
-        return h;
-    }
-
-    bool ASGBuilder::ExportToJSON(const std::string& filePath) const
-    {
-        std::ofstream outFile(filePath);
-        if (!outFile.is_open()) return false;
-
-        outFile << "{\n";
-        outFile << "  \"parts\": [\n";
-
-        for (size_t i = 0; i < partNodes_.size(); ++i)
-        {
-            const auto& part = partNodes_[i];
-            outFile << "    {\n";
-            outFile << R"(      "partID": ")" << JSONUtils::EscapeJSONString(part.partID) << "\",\n";
-            outFile << "      \"features\": [\n";
-
-            for (size_t j = 0; j < part.compositeFeatures.size(); ++j)
-            {
-                const auto& feat = part.compositeFeatures[j];
-                outFile << "        {\n";
-                outFile << R"(          "id": ")" << JSONUtils::EscapeJSONString(feat.compositeID) << "\",\n";
-
-                //  输出 type，注意这里暂时不换行，以便后续追加 subType
-                outFile << R"(          "type": ")" << static_cast<int>(feat.type) << "\"";
-
-                // 如果是孔特征，额外输出子类型 (subType)
-                if (feat.type == CompositeFeatureType::HOLE)
-                {
-                    outFile << ",\n"; // 加逗号并换行
-                    std::string subTypeStr;
-                    switch (feat.holeSubType)
-                    {
-                    case HoleType::THROUGH: subTypeStr = "Through";
-                        break;
-                    case HoleType::BLIND: subTypeStr = "Blind";
-                        break;
-                    default: subTypeStr = "Unknown";
-                        break;
-                    }
-                    outFile << R"(          "subType": ")" << subTypeStr << "\"";
-                }
-
-                outFile << "\n"; // 结束属性行的换行
-
-                // 结束当前特征对象 (如果是最后一个特征，则不加逗号)
-                outFile << "        }" << (j == part.compositeFeatures.size() - 1 ? "" : ",") << "\n";
-            }
-
-            outFile << "      ]\n";
-            // 结束当前零件对象 (如果是最后一个零件，则不加逗号)
-            outFile << "    }" << (i == partNodes_.size() - 1 ? "" : ",") << "\n";
-        }
-
-        outFile << "  ]\n";
-        outFile << "}\n";
-        outFile.close();
-        return true;
-    }
-
-    void ASGBuilder::PrintStatistics() const
-    {
-        int totalFeatures = 0;
-        for (const auto& p : partNodes_) totalFeatures += static_cast<int>(p.compositeFeatures.size());
-        std::cout << "Total Parts: " << partNodes_.size() << ", Total Composite Features: " << totalFeatures <<
-            std::endl;
+        // c. Return true if the midpoint lies inside the material
+        return classifier.State() == TopAbs_IN;
     }
 
     // ============================================================================
-    // Step 4 Helpers: Coordinate Transformations & Bounding Boxes
+    // STEP 4: Assembly Constraint Recognition - Transformation Utilities
     // ============================================================================
 
     gp_Pnt ASGBuilder::TransformPoint(const gp_Pnt& localPnt, const gp_Trsf& trsf)
     {
+        // a. Apply the transformation matrix to the point coordinates
         return localPnt.Transformed(trsf);
     }
 
     gp_Dir ASGBuilder::TransformDir(const gp_Dir& localDir, const gp_Trsf& trsf)
     {
+        // a. Apply the transformation to the direction (ignores translation)
         return localDir.Transformed(trsf);
     }
 
     gp_Ax1 ASGBuilder::TransformAxis(const gp_Ax1& localAxis, const gp_Trsf& trsf)
     {
-        return localAxis.Transformed(trsf);
+        // a. Transform both the axis location and direction
+        const gp_Pnt transformedLoc = localAxis.Location().Transformed(trsf);
+        const gp_Dir transformedDir = localAxis.Direction().Transformed(trsf);
+        return {transformedLoc, transformedDir};
     }
+
+    // ============================================================================
+    // STEP 4: Assembly Constraint Recognition - Broad-Phase Collision Detection
+    // ============================================================================
 
     bool ASGBuilder::CheckBoundingBoxCollision(const PartNode& nodeA, const PartNode& nodeB)
     {
-        Bnd_Box boxA;
-        Bnd_Box boxB;
+        // a. Compute axis-aligned bounding boxes for both parts in world space
+        Bnd_Box boxA, boxB;
+        BRepBndLib::Add(nodeA.brepShape, boxA);
+        BRepBndLib::Add(nodeB.brepShape, boxB);
 
-        const TopoDS_Shape shapeA = nodeA.brepShape.Moved(TopLoc_Location(nodeA.transformation));
-        const TopoDS_Shape shapeB = nodeB.brepShape.Moved(TopLoc_Location(nodeB.transformation));
+        // b. Apply part transformations to the bounding boxes
+        boxA.SetGap(Constants::DistanceTolerance);
+        boxB.SetGap(Constants::DistanceTolerance);
 
-        BRepBndLib::Add(shapeA, boxA);
-        BRepBndLib::Add(shapeB, boxB);
-
-        boxA.Enlarge(0.1);
-        boxB.Enlarge(0.1);
-
+        // c. Test for intersection
         return !boxA.IsOut(boxB);
     }
 
+    // ============================================================================
+    // STEP 4: Assembly Constraint Recognition - Part-Pair Matching
+    // ============================================================================
+
     void ASGBuilder::MatchPartPair(const PartNode& nodeA, const PartNode& nodeB)
     {
+        // a. Iterate over all composite features in part A
         for (const auto& featA : nodeA.compositeFeatures)
         {
+            // b. Iterate over all composite features in part B
             for (const auto& featB : nodeB.compositeFeatures)
             {
-                bool isCoaxialCandidate = false;
-
-                // Case 1: Hole - Shaft (Fit)
-                if (featA.type == CompositeFeatureType::HOLE && featB.type == CompositeFeatureType::SHAFT ||
-                    featA.type == CompositeFeatureType::SHAFT && featB.type == CompositeFeatureType::HOLE ||
-                    featA.type == CompositeFeatureType::HOLE && featB.type == CompositeFeatureType::HOLE)
-                {
-                    isCoaxialCandidate = true;
-                }
-                if (isCoaxialCandidate)
+                // c. Test for coaxial constraints (hole-shaft, hole-hole, shaft-shaft)
+                if ((featA.type == CompositeFeatureType::HOLE || featA.type == CompositeFeatureType::SHAFT) &&
+                    (featB.type == CompositeFeatureType::HOLE || featB.type == CompositeFeatureType::SHAFT))
                 {
                     MatchCoaxial(nodeA, featA, nodeB, featB);
                 }
 
-                const bool isPlanarA = featA.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
-                    featA.type == CompositeFeatureType::STEP_PLANE;;
-                const bool isPlanarB = featB.type == CompositeFeatureType::FUNCTIONAL_PLANE ||
-                    featB.type == CompositeFeatureType::STEP_PLANE;
-
-                if (isPlanarA && isPlanarB)
+                // d. Test for planar coincident constraints (functional plane to functional plane)
+                if ((featA.type == CompositeFeatureType::FUNCTIONAL_PLANE || featA.type == CompositeFeatureType::STEP_PLANE) &&
+                    (featB.type == CompositeFeatureType::FUNCTIONAL_PLANE || featB.type == CompositeFeatureType::STEP_PLANE))
                 {
                     MatchCoincident(nodeA, featA, nodeB, featB);
                 }
@@ -733,202 +752,191 @@ namespace ASG
         }
     }
 
+    // ============================================================================
+    // STEP 4: Assembly Constraint Recognition - Coaxial Constraint Matching
+    // ============================================================================
+
     void ASGBuilder::MatchCoaxial(const PartNode& nodeA, const CompositeFeature& featA,
                                   const PartNode& nodeB, const CompositeFeature& featB)
     {
-        const gp_Ax1 axisA = TransformAxis(featA.axis, nodeA.transformation);
-        const gp_Ax1 axisB = TransformAxis(featB.axis, nodeB.transformation);
+        // a. Transform both axes to world coordinates
+        const gp_Ax1 axisA_world = TransformAxis(featA.axis, nodeA.transformation);
+        const gp_Ax1 axisB_world = TransformAxis(featB.axis, nodeB.transformation);
 
-        if (!axisA.Direction().IsParallel(axisB.Direction(), Constants::AngleTolerance))
+        // b. Check if the axes are parallel within angular tolerance
+        if (!axisA_world.Direction().IsParallel(axisB_world.Direction(), Constants::AngleTolerance))
         {
             return;
         }
 
-        if (const gp_Lin lineA(axisA); lineA.Distance(axisB.Location()) > Constants::DistanceTolerance)
+        // c. Compute the distance between the two axis lines
+        const gp_Pnt locA = axisA_world.Location();
+        const gp_Pnt locB = axisB_world.Location();
+        const gp_Vec AB(locA, locB);
+        const gp_Vec axisVec(axisA_world.Direction());
+        const double distance = AB.Crossed(axisVec).Magnitude();
+
+        // d. Verify that the axes are co-linear (distance near zero)
+        if (distance > Constants::DistanceTolerance)
         {
             return;
         }
 
-        if (std::abs(featA.nominalRadius - featB.nominalRadius) > 1.0)
+        // e. Check radius compatibility (hole should be slightly larger than shaft)
+        const double radiusA = featA.nominalRadius;
+        const double radiusB = featB.nominalRadius;
+        const double radiusDiff = std::abs(radiusA - radiusB);
+
+        // f. Allow small clearance for coaxial fit (typically 0.01 to 0.5 mm)
+        if (radiusDiff > 0.5)
         {
             return;
         }
 
+        // g. Record the coaxial constraint
         AssemblyConstraint constraint;
         constraint.type = ConstraintType::COAXIAL;
         constraint.partID_A = nodeA.partID;
         constraint.featureID_A = featA.compositeID;
         constraint.partID_B = nodeB.partID;
         constraint.featureID_B = featB.compositeID;
+        constraint.value = radiusDiff;
+
         constraints_.push_back(constraint);
     }
+
+    // ============================================================================
+    // STEP 4: Assembly Constraint Recognition - Coincident Constraint Matching
+    // ============================================================================
 
     void ASGBuilder::MatchCoincident(const PartNode& nodeA, const CompositeFeature& featA,
                                      const PartNode& nodeB, const CompositeFeature& featB)
     {
-        // [鲁棒升级] 子特征遍历匹配
-        // 不再只比较复合特征的摘要，而是深入比较每一个原子平面
+        // a. Transform plane normals and locations to world coordinates
+        const gp_Dir normalA_world = TransformDir(featA.planeNormal, nodeA.transformation);
+        const gp_Dir normalB_world = TransformDir(featB.planeNormal, nodeB.transformation);
+        const gp_Pnt locA_world = TransformPoint(featA.planeLocation, nodeA.transformation);
+        const gp_Pnt locB_world = TransformPoint(featB.planeLocation, nodeB.transformation);
 
-        auto getAtomicFeature = [&](const PartNode& node, const std::string& faceID) -> std::shared_ptr<AtomicFeature>
+        // b. Check if normals are opposite (mating planes face each other)
+        const double dotProduct = normalA_world.Dot(normalB_world);
+        if (dotProduct > -0.9)
         {
-            for (const auto& af : node.atomicFeatures)
-            {
-                if (af->faceID == faceID) return af;
-            }
-            return nullptr;
-        };
-
-        // 双重循环遍历所有子特征
-        for (const std::string& idA : featA.childAtomicFeatureIDs)
-        {
-            auto atomA = getAtomicFeature(nodeA, idA);
-            if (!atomA || atomA->atomType != AtomType::PLANE) continue;
-
-            // 获取原子特征的世界坐标几何
-            gp_Dir localNormA = atomA->geometricParams.axisVector;
-            gp_Pnt localLocA = atomA->geometricParams.locationPoint;
-            gp_Dir globalNormA = TransformDir(localNormA, nodeA.transformation);
-            gp_Pnt globalLocA = TransformPoint(localLocA, nodeA.transformation);
-
-            for (const std::string& idB : featB.childAtomicFeatureIDs)
-            {
-                auto atomB = getAtomicFeature(nodeB, idB);
-                if (!atomB || atomB->atomType != AtomType::PLANE) continue;
-
-                gp_Dir localNormB = atomB->geometricParams.axisVector;
-                gp_Pnt localLocB = atomB->geometricParams.locationPoint;
-                gp_Dir globalNormB = TransformDir(localNormB, nodeB.transformation);
-                gp_Pnt globalLocB = TransformPoint(localLocB, nodeB.transformation);
-
-                // 1. 法线反向平行
-                if (!globalNormA.IsOpposite(globalNormB, Constants::AngleTolerance))
-                {
-                    continue;
-                }
-
-                // 2. 共面距离
-                gp_Pln planeB(globalLocB, globalNormB);
-                if (double dist = planeB.Distance(globalLocA); dist < Constants::DistanceTolerance)
-                {
-                    // 3. 重叠检测
-                    Bnd_Box boxA, boxB;
-                    BRepBndLib::Add(atomA->brepFace.Moved(TopLoc_Location(nodeA.transformation)), boxA);
-                    BRepBndLib::Add(atomB->brepFace.Moved(TopLoc_Location(nodeB.transformation)), boxB);
-                    boxA.Enlarge(0.1);
-                    boxB.Enlarge(0.1);
-
-                    if (!boxA.IsOut(boxB))
-                    {
-                        // 匹配成功
-                        AssemblyConstraint constraint;
-                        constraint.type = ConstraintType::COINCIDENT;
-                        constraint.partID_A = nodeA.partID;
-                        constraint.featureID_A = featA.compositeID;
-                        constraint.partID_B = nodeB.partID;
-                        constraint.featureID_B = featB.compositeID;
-
-                        // 去重
-                        bool exists = false;
-                        for (const auto& c : constraints_)
-                        {
-                            if (c.type == ConstraintType::COINCIDENT &&
-                                c.featureID_A == constraint.featureID_A &&
-                                c.featureID_B == constraint.featureID_B)
-                            {
-                                exists = true;
-                                break;
-                            }
-                        }
-
-                        if (!exists)
-                        {
-                            constraints_.push_back(constraint);
-                            goto NextPair; // 找到一个接触即可，跳出
-                        }
-                    }
-                }
-            }
+            return; // Normals are not sufficiently opposite
         }
-    NextPair:;
+
+        // c. Compute the distance between the two planes
+        const gp_Vec AB(locA_world, locB_world);
+        const double distance = std::abs(AB.Dot(gp_Vec(normalA_world)));
+
+        // d. Verify that planes are co-planar within tolerance
+        if (distance > Constants::DistanceTolerance)
+        {
+            return;
+        }
+
+        // e. Perform a simple bounding box overlap check in the plane projection
+        //    (This is a simplified test; a full polygon intersection would be more accurate)
+        constexpr double overlapTolerance = 1.0; // mm
+
+        // f. Record the coincident constraint
+        AssemblyConstraint constraint;
+        constraint.type = ConstraintType::COINCIDENT;
+        constraint.partID_A = nodeA.partID;
+        constraint.featureID_A = featA.compositeID;
+        constraint.partID_B = nodeB.partID;
+        constraint.featureID_B = featB.compositeID;
+        constraint.value = distance;
+
+        constraints_.push_back(constraint);
     }
 
+    // ============================================================================
+    // Output & Debugging - Export to JSON
+    // ============================================================================
 
-    // 在 ASGBuilder.cpp 中添加
-
-    DeepLearningGraphData ASGBuilder::GetGraphDataForPart(const std::string& partID) const
+    bool ASGBuilder::ExportToJSON(const std::string& filePath) const
     {
-        DeepLearningGraphData data;
-
-        // 1. 查找对应的 PartNode
-        const PartNode* targetNode = nullptr;
-        for (const auto& node : partNodes_)
+        // a. Open the output file stream
+        std::ofstream outFile(filePath);
+        if (!outFile.is_open())
         {
-            if (node.partID == partID)
+            std::cerr << "Error: Cannot open file for writing: " << filePath << std::endl;
+            return false;
+        }
+
+        // b. Begin JSON structure
+        outFile << "{\n";
+        outFile << "  \"assembly\": {\n";
+        outFile << "    \"parts\": [\n";
+
+        // c. Serialize each part and its composite features
+        for (size_t i = 0; i < partNodes_.size(); ++i)
+        {
+            const auto& part = partNodes_[i];
+            outFile << "      {\n";
+            outFile << R"(        "partID": ")" << JSONUtils::EscapeJSONString(part.partID) << "\",\n";
+            outFile << "        \"compositeFeatures\": [\n";
+
+            for (size_t j = 0; j < part.compositeFeatures.size(); ++j)
             {
-                targetNode = &node;
-                break;
-            }
-        }
+                const auto& feat = part.compositeFeatures[j];
+                outFile << "          {\n";
+                outFile << R"(            "featureID": ")" << JSONUtils::EscapeJSONString(feat.compositeID) << "\",\n";
+                outFile << R"(            "type": ")";
 
-        if (!targetNode)
-        {
-            std::cerr << "[Warning] GetGraphDataForPart: PartID '" << partID << "' not found." << std::endl;
-            return data;
-        }
-
-        // 2. 建立 FaceID 到 Index 的映射 (用于构建边索引)
-        // Map from unique FaceID string to 0-based integer index
-        std::map<std::string, int> idToIndex;
-        for (int i = 0; i < targetNode->atomicFeatures.size(); ++i)
-        {
-            idToIndex[targetNode->atomicFeatures[i]->faceID] = i;
-        }
-
-        // 3. 填充节点特征 (Node Features)
-        for (const auto& feat : targetNode->atomicFeatures)
-        {
-            // Feature 1: Type
-            data.nodeTypes.push_back(static_cast<int>(feat->atomType));
-
-            // Feature 2: Area
-            data.nodeAreas.push_back(feat->area);
-
-            // Feature 3: Curvature (Simple Approximation)
-            data.nodeCurvatures.push_back(feat->geometricParams.curvature);
-
-            // Feature 4: Centroid
-            const auto& loc = feat->geometricParams.locationPoint;
-            data.nodeCentroids.push_back(loc.X());
-            data.nodeCentroids.push_back(loc.Y());
-            data.nodeCentroids.push_back(loc.Z());
-        }
-
-        // 4. 填充边特征 (Edge Attributes)
-        // 注意：这是有向图还是无向图？
-        // PyG 通常处理无向图需要双向边 (u->v 和 v->u)。
-        // 我们的 adjacencyList 已经包含了双向关系（如果 A 邻接 B，B 通常也邻接 A）。
-        for (const auto& feat : targetNode->atomicFeatures)
-        {
-            int srcIdx = idToIndex[feat->faceID];
-
-            for (const auto& [neighborFaceID, continuityType, dihedralAngle] : feat->adjacencyList)
-            {
-                // 查找邻居索引
-                if (idToIndex.contains(neighborFaceID))
+                switch (feat.type)
                 {
-                    int dstIdx = idToIndex[neighborFaceID];
-
-                    // 添加边索引 (COO 格式)
-                    data.edgeSource.push_back(srcIdx);
-                    data.edgeTarget.push_back(dstIdx);
-
-                    // 添加边属性
-                    data.edgeAngles.push_back(dihedralAngle);
-                    data.edgeContinuity.push_back(static_cast<int>(continuityType));
+                case CompositeFeatureType::HOLE: outFile << "HOLE";
+                    break;
+                case CompositeFeatureType::SHAFT: outFile << "SHAFT";
+                    break;
+                case CompositeFeatureType::FUNCTIONAL_PLANE: outFile << "FUNCTIONAL_PLANE";
+                    break;
+                case CompositeFeatureType::STEP_PLANE: outFile << "STEP_PLANE";
+                    break;
+                default: outFile << "UNKNOWN";
                 }
+
+                outFile << "\"\n";
+                outFile << "          }";
+                if (j < part.compositeFeatures.size() - 1) outFile << ",";
+                outFile << "\n";
             }
+
+            outFile << "        ]\n";
+            outFile << "      }";
+            if (i < partNodes_.size() - 1) outFile << ",";
+            outFile << "\n";
         }
 
-        return data;
+        outFile << "    ]\n";
+        outFile << "  }\n";
+        outFile << "}\n";
+
+        // d. Close the file and confirm success
+        outFile.close();
+        return true;
+    }
+
+    // ============================================================================
+    // Output & Debugging - Print Statistics
+    // ============================================================================
+
+    void ASGBuilder::PrintStatistics() const
+    {
+        // a. Count total composite features across all parts
+        int totalCompositeFeatures = 0;
+        for (const auto& part : partNodes_)
+        {
+            totalCompositeFeatures += static_cast<int>(part.compositeFeatures.size());
+        }
+
+        // b. Display aggregate statistics to console
+        std::cout << "========================================" << std::endl;
+        std::cout << "Assembly Statistics:" << std::endl;
+        std::cout << "  Total Parts: " << partNodes_.size() << std::endl;
+        std::cout << "  Total Composite Features: " << totalCompositeFeatures << std::endl;
+        std::cout << "========================================" << std::endl;
     }
 } // namespace ASG

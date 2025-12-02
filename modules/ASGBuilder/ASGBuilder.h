@@ -55,112 +55,108 @@
 namespace ASG
 {
     // ============================================================================
-    // Constants / 常量定义
+    // Constants
     // ============================================================================
 
     namespace Constants
     {
         /**
-         * @brief Tolerance for distance/radius comparison (mm)
-         * 距离和半径比较的容差 (1e-6 mm)
+         * @brief Distance tolerance used for radius comparisons and bounding-box enlargement
+         * @details Empirically tuned for STEP assemblies modeled in millimeters to keep feature grouping robust
          */
         constexpr double DistanceTolerance = 1e-6;
 
         /**
-         * @brief Tolerance for angle comparison (radians)
-         * 角度和矢量比较的容差 (rad)
+         * @brief Angular tolerance (radians) for axis, normal, and direction comparisons
+         * @details Prevents false-negative matches when aligning features under floating-point noise
          */
         constexpr double AngleTolerance = 1e-6;
     }
 
     // ============================================================================
-    // Enums / 枚举类型
+    // Enumerations
     // ============================================================================
 
     /**
-     * @brief Atomic Geometry Type
-     * 原子几何类型枚举
+     * @brief Enumerates supported atomic surface primitives
+     * @details Used during surface classification; determines which geometric parameters are populated
      */
     enum class AtomType
     {
-        PLANE, // 平面
-        CYLINDER, // 圆柱面
-        CONE, // 圆锥面
-        SPHERE, // 球面
-        TORUS, // 环面
-        BSPLINE, // B样条曲面
-        OTHER // 其他
+        PLANE,
+        CYLINDER,
+        CONE,
+        SPHERE,
+        TORUS,
+        BSPLINE,
+        OTHER
     };
 
     /**
-     * @brief Form Type (Concavity)
-     * 形态类型枚举（凹/凸）
+     * @brief Indicates whether a surface is convex, concave, or indeterminate relative to its solid
+     * @details Derived via curvature-center test and used to distinguish shafts vs. holes
      */
     enum class FormType
     {
-        CONVEX, // 凸出（外部表面）
-        CONCAVE, // 凹陷（内部特征）
-        NEUTRAL // 中性（无法判断）
+        CONVEX,
+        CONCAVE,
+        NEUTRAL
     };
 
     /**
-     * @brief Geometric Continuity Type
-     * 几何连续性类型
+     * @brief Classifies continuity between neighboring faces
+     * @details Encodes whether surfaces meet sharply (C0), tangentially (C1), smoothly (C2), or cannot be determined
      */
     enum class ContinuityType
     {
-        C0, // 位置连续（尖锐边）
-        C1, // 相切连续（圆角）
-        C2, // 曲率连续
-        UNKNOWN // 未知
+        C0,     //sharply
+        C1,     //tangentially
+        C2,     //smoothly
+        UNKNOWN     //cannot be determined
     };
 
     /**
-     * @brief Composite Feature Type
-     * 复合特征类型枚举 (有工程意义的特征)
+     * @brief Identifies high-level engineering features composed from atomic surfaces
+     * @details Used by composite recognition to tag holes, shafts, planar mates, and other semantic groups
      */
     enum class CompositeFeatureType
     {
         UNKNOWN,
-        HOLE, // 孔 (凹陷圆柱)
-        SHAFT, // 轴 (凸出圆柱)
-        FUNCTIONAL_PLANE, // 功能平面 (装配贴合面)
-        STEP_PLANE, // 台阶面 (与孔/轴相邻的平面)
+        HOLE,
+        SHAFT,
+        FUNCTIONAL_PLANE,
+        STEP_PLANE,
     };
 
     /**
-     * @brief Hole Type
-     * 孔类型枚举
+     * @brief Differentiates through-holes from blind holes
+     * @details Derived during hole recognition to support downstream tolerance reasoning
      */
     enum class HoleType
     {
-        THROUGH, // 通孔
-        BLIND, // 盲孔
+        THROUGH,
+        BLIND,
         UNKNOWN
     };
 
     /**
-     * @brief Assembly Constraint Type
-     * 装配约束类型
+     * @brief Enumerates supported assembly constraint relationships
+     * @details Produced by constraint matching and consumed by downstream solvers
      */
     enum class ConstraintType
     {
-        COAXIAL, // 同轴 (孔-轴/孔-孔)
-        COINCIDENT, // 贴合 (面-面)
-        OFFSET // 距离 (面-面有间距)
+        COAXIAL,    // hole-shaft/hole-hole
+        COINCIDENT, // face2face
+        OFFSET      // face2face with distance(not used currently)
     };
 
-
-
-
-    // ============================================================================
-    // Data Structures / 数据结构
-    // ============================================================================
-
+    // ==========================================================================
+    // Data Structures
+    // ==========================================================================
 
     /**
-     * @brief Assembly Constraint Structure
-     * 装配约束结构：描述两个零件特征之间的关系
+     * @brief Captures a single assembly constraint between two composite features
+     * @details Provides part/feature identifiers plus type-specific numeric value for later graph export
      */
     struct AssemblyConstraint
     {
@@ -191,100 +187,77 @@ namespace ASG
     };
 
     /**
-     * @brief Geometric Parameters for various shapes
-     * 通用几何参数结构
+     * @brief Container for geometry parameters shared across all atomic feature types
+     * @details Holds axis, radii, height, and curvature values derived during IdentifyGeometryType
      */
     struct GeometricParams
     {
-        // Common
-        gp_Dir axisVector; // Normal for Plane, Axis for Cylinder/Cone
-        gp_Pnt locationPoint; // Location for Plane, Axis Point for Cylinder
-
-        // Dimensions
-        double radius = 0.0; // Radius (Cylinder, Cone, Sphere)
-        double height = 0.0; // Height/Depth along axis
-        double semiAngle = 0.0; // Cone semi-angle
-        double majorRadius = 0.0; // Torus
-        double minorRadius = 0.0; // Torus
-        // [新增] 预计算的曲率特征 (用于 GNN 输入)
-        // [NEW] Pre-computed curvature feature (Mean Curvature approximation)
-        double curvature = 0.0;
+        gp_Dir axisVector;          // Normal for Plane, Axis for Cylinder/Cone
+        gp_Pnt locationPoint;       // Location for Plane, Axis Point for Cylinder
+        double radius = 0.0;        // Radius (Cylinder, Cone, Sphere)
+        double height = 0.0;        // Height/Depth along axis
+        double semiAngle = 0.0;     // Cone semi-angle
+        double majorRadius = 0.0;   // Torus
+        double minorRadius = 0.0;   // Torus
+        double curvature = 0.0;     // Pre-computed curvature feature (Mean Curvature approximation)
     };
 
     /**
-     * @brief Adjacency Information
-     * 邻接信息结构
+     * @brief Records adjacency metadata for a single neighboring face
+     * @details Stores neighbor identifier, continuity classification, and measured dihedral angle
      */
     struct AdjacencyInfo
     {
         std::string neighborFaceID;
         ContinuityType continuityType = ContinuityType::UNKNOWN;
-        double dihedralAngle = 0.0; //二面角 (弧度制)，范围 [0, PI]
+        double dihedralAngle = 0.0;
     };
 
     /**
-     * @brief Atomic Feature Structure
-     * 原子特征结构：存储一个面的完整几何与拓扑信息
+     * @brief Describes a single atomic surface along with derived attributes
+     * @details Contains the OCC face handle, geometry classification, adjacency list, and fragment metadata
      */
     struct AtomicFeature
     {
         std::string faceID;
-        TopoDS_Face brepFace; // TopoDS_Face is a value-type handle (lightweight)
-
-        // Step 2 Results
+        TopoDS_Face brepFace;
         AtomType atomType = AtomType::OTHER;
         GeometricParams geometricParams;
         FormType formType = FormType::NEUTRAL;
         std::vector<AdjacencyInfo> adjacencyList;
-
-        // Metadata
         double area = 0.0;
         bool isFunctional = true;
-
-        // Fragment Merging (Step 2.5)
-        bool isFragment = false; // Is this a split face? / 是否为碎片
-        bool isMainFragment = false; // Is this the representative? / 是否为主特征
-        std::string logicalFeatureID; // Shared ID for merged features / 逻辑特征ID
+        bool isFragment = false;
+        bool isMainFragment = false;
+        std::string logicalFeatureID;
         double mergedArea = 0.0;
         std::vector<std::string> fragmentFaceIDs;
-
-        // Step 3 Status
-        bool isConsumed = false; // Already used in a composite feature? / 是否已被消耗
-
-        AtomicFeature() = default;
+        bool isConsumed = false;
     };
 
     /**
-     * @brief Composite Feature Structure
-     * 复合特征结构：工程语义层面的特征
+     * @brief Describes an engineering composite feature constructed from atomic surfaces
+     * @details Stores identifiers, geometry summaries, and child face relationships for graph export
      */
     struct CompositeFeature
     {
         std::string compositeID;
         CompositeFeatureType type = CompositeFeatureType::UNKNOWN;
         std::string partID;
-
-        // Links to atomic features / 关联的原子特征ID
         std::vector<std::string> childAtomicFeatureIDs;
-
-        // Geometric Summary (Cached for quick access) / 几何简报
-        gp_Ax1 axis; // For rotational features
+        gp_Ax1 axis;
         double nominalRadius = 0.0;
         double height = 0.0;
-
-        gp_Dir planeNormal; // For planar features
+        gp_Dir planeNormal;
         gp_Pnt planeLocation;
         double planeArea = 0.0;
-        double width = 0.0; // For slots/tongues
-
-        HoleType holeSubType = HoleType::UNKNOWN; // For holes-subType
-
-        CompositeFeature() = default;
+        double width = 0.0;
+        HoleType holeSubType = HoleType::UNKNOWN;
     };
 
     /**
-     * @brief Merge Key for fragment identification
-     * 合并键：用于识别属于同一几何面的碎片
+     * @brief Key used to cluster fragmented faces that share the same underlying surface
+     * @details Combines the OCC surface handle with concavity state for use in ordered containers
      */
     struct MergeKey
     {
@@ -302,8 +275,8 @@ namespace ASG
     };
 
     /**
-     * @brief Part Node Structure
-     * 零件节点结构
+     * @brief Represents a single part including raw shape data and derived features
+     * @details Holds the local B-Rep, transformation to world space, atomic features, and recognized composites
      */
     struct PartNode
     {
@@ -312,7 +285,6 @@ namespace ASG
         gp_Trsf transformation;
 
         // Use shared_ptr to prevent pointer invalidation when vector resizes
-        // 使用 shared_ptr 防止 vector 扩容时指针失效 (关键修改)
         std::vector<std::shared_ptr<AtomicFeature>> atomicFeatures;
 
         std::vector<CompositeFeature> compositeFeatures;
@@ -320,29 +292,30 @@ namespace ASG
         PartNode() = default;
     };
 
-    // [新增] 专门用于传输给 Python/GNN 的扁平化图数据结构
-    // [NEW] Flattened Graph Data Structure for Python/GNN Bridge
+    /**
+     * @brief Flattened graph structure consumed by Python/GNN pipelines
+     * @details Captures node features, edge indices, and supervision labels exported via GetGraphDataForPart
+     */
     struct DeepLearningGraphData
     {
-        // --- Node Features (节点特征) ---
-        // Shape: [NumNodes]
-        std::vector<int> nodeTypes;        // Feature 1: AtomType (One-hot source)
-        std::vector<double> nodeAreas;     // Feature 2: Surface Area
-        std::vector<double> nodeCurvatures;// Feature 3: Approx. Mean Curvature
-        // Shape: [NumNodes * 3] -> Flattened [x1, y1, z1, x2, y2, z2...]
-        std::vector<double> nodeCentroids; // Feature 4: Centroid (x,y,z)
+        // Node feature channels
+        std::vector<int> nodeTypes;
+        std::vector<double> nodeAreas;
+        std::vector<double> nodeCurvatures;
+        std::vector<double> nodeCentroids;
 
-        // --- Edge Index (边索引) ---
-        // Shape: [2, NumEdges] -> separated into Source and Target vectors
-        std::vector<int> edgeSource;       // Source Node Index
-        std::vector<int> edgeTarget;       // Target Node Index
+        // Edge index storage
+        std::vector<int> edgeSource;
+        std::vector<int> edgeTarget;
 
-        // --- Edge Attributes (边属性) ---
-        // Shape: [NumEdges]
-        std::vector<double> edgeAngles;    // Attribute 1: Dihedral Angle (radians)
-        std::vector<int> edgeContinuity;   // Attribute 2: Continuity Type (Enum int)
+        // Edge attributes
+        std::vector<double> edgeAngles;
+        std::vector<int> edgeContinuity;
 
-        // Helper to check if empty
+        // Supervision labels
+        std::vector<int> nodeLabelTypes;
+        std::vector<int> nodeLabelIndices;
+
         [[nodiscard]] bool IsEmpty() const { return nodeTypes.empty(); }
     };
 
@@ -355,303 +328,298 @@ namespace ASG
     {
     public:
         /**
-         * @brief Constructor for ASGBuilder
-         * ASGBuilder 构造函数
-         * @details Creates XDE document for CAD data management
-         * 创建用于 CAD 数据管理的 XDE 文档
-         * @input 无输入参数
-         * @output 初始化的 ASGBuilder 对象
+         * @brief Construct ASGBuilder and allocate an XDE document for downstream import
+         * @details Instantiates the OCCT application context and prepares an empty document handle
+         * @return Initialized ASGBuilder instance ready for STEP loading
          */
         ASGBuilder();
 
         /**
-         * @brief Destructor for ASGBuilder
-         * ASGBuilder 析构函数
-         * @details Closes XDE document and releases resources
-         * 关闭 XDE 文档并释放资源
-         * @input 无输入参数
-         * @output 无返回值
+         * @brief Destroy ASGBuilder and release document resources
+         * @details Closes the XDE document if allocated to avoid handle leaks
          */
         ~ASGBuilder();
 
-        // --- Step 1: CAD Data Parsing / 数据解析 ---
-
         /**
-         * @brief Load assembly from STEP file
-         * 从 STEP 文件加载装配体
-         * @details Reads STEP file and transfers data to internal XDE document structure
-         * 读取 STEP 文件并将数据传输到内部 XDE 文档结构
-         * @param filePath 输入的 STEP 文件路径 / Input STEP file path
-         * @return 加载成功返回 true，失败返回 false / Returns true if successful, false otherwise
+         * @brief Load a STEP assembly into the internal XDE document
+         * @details Configures STEPCAF reader, transfers data, and populates shapeTool_
+         * @param filePath input: absolute or relative path to a STEP file
+         * @return output: true when reading/transferring succeed, otherwise false
          */
         [[nodiscard]] bool LoadAssemblyFromSTEP(const std::string& filePath);
 
         /**
-         * @brief Parse assembly tree structure
-         * 解析装配树结构
-         * @details Recursively traverses XDE assembly tree and extracts all parts with their transformations
-         * 递归遍历 XDE 装配树并提取所有零件及其变换
-         * @input 无显式输入参数（使用内部 shapeTool_）/ No explicit input (uses internal shapeTool_)
-         * @output 填充 partNodes_ 向量 / Populates partNodes_ vector
+         * @brief Traverse the assembly tree and collect PartNode entries
+         * @details Uses shapeTool_ to find free shapes, recursing through assembly/component labels
          */
         void ParseAssemblyTree();
 
-        // --- Step 2: Atomic Classification / 原子特征分类 ---
-
         /**
-         * @brief Classify atomic geometric features for all parts
-         * 对所有零件进行原子几何特征分类
-         * @details Analyzes each face in every part to identify geometry type, form type (concave/convex),
-         *          and topological adjacency. Also merges fragmented features that belong to same geometric surface.
-         * 分析每个零件中的每个面，识别几何类型、形态类型（凹/凸）和拓扑邻接关系。同时合并属于同一几何面的碎片特征。
-         * @input 无显式输入参数（使用内部 partNodes_）/ No explicit input (uses internal partNodes_)
-         * @output 填充每个零件的 atomicFeatures 向量 / Populates atomicFeatures vector for each part
+         * @brief Identify atomic features for every part in partNodes_
+         * @details Classifies each face, captures adjacency, and merges fragments prior to composite recognition
          */
         void ClassifyAtomicFeatures();
 
-        // --- Step 3: Composite Recognition / 复合特征识别 ---
-
         /**
-         * @brief Recognize engineering composite features from atomic features
-         * 从原子特征中识别工程复合特征
-         * @details Applies recognition rules to identify holes, shafts, slots, tongues, step planes,
-         *          and functional planes based on atomic feature combinations and adjacency relationships.
-         * 应用识别规则识别孔、轴、槽、榫、台阶面和功能平面，基于原子特征组合和邻接关系。
-         * @input 无显式输入参数（使用内部 partNodes_）/ No explicit input (uses internal partNodes_)
-         * @output 填充每个零件的 compositeFeatures 向量 / Populates compositeFeatures vector for each part
+         * @brief Apply rule-based recognition to convert atomic features into composite features
+         * @details Detects holes, shafts, step planes, and functional planes by inspecting adjacency patterns
          */
         void RecognizeCompositeFeatures();
 
-        // --- Step 4: Assembly Relationship Recognition ---
+        /**
+         * @brief Build the assembly constraint graph between recognized composite features
+         * @details Checks bounding boxes, matches coaxial/planar pairs, and stores resulting constraints
+         */
         void BuildAssemblyConstraintGraph();
 
-        // --- Output & Debug / 输出与调试 ---
-
         /**
-         * @brief Print statistical information to console
-         * 向控制台打印统计信息
-         * @details Outputs the total number of parts and composite features recognized
-         * 输出识别的零件总数和复合特征总数
-         * @input 无输入参数 / No input parameters
-         * @output 向标准输出打印统计信息 / Prints statistics to standard output
+         * @brief Print part/feature counts to the console for quick diagnostics
          */
         void PrintStatistics() const;
 
         /**
-         * @brief Export analysis results to JSON file
-         * 将分析结果导出到 JSON 文件
-         * @details Serializes part information and composite features to JSON format
-         * 将零件信息和复合特征序列化为 JSON 格式
-         * @param filePath 输出 JSON 文件路径 / Output JSON file path
-         * @return 导出成功返回 true，失败返回 false / Returns true if export succeeds, false otherwise
+         * @brief Serialize current analysis data to a JSON file
+         * @details Writes part IDs and composite feature summaries in a lightweight interchange format
+         * @param filePath input: destination JSON path
+         * @return output: true when file writing succeeds, false otherwise
          */
         [[nodiscard]] bool ExportToJSON(const std::string& filePath) const;
 
-        // --- Public Test Helper (Matches previous main.cpp) ---
         /**
-         * @brief Public test helper function
-         * 公开测试辅助函数
-         * @details Simple test function for verifying ASGBuilder linkage
-         * 用于验证 ASGBuilder 链接的简单测试函数
-         * @input 无输入参数 / No input parameters
-         * @output 向标准输出打印测试消息 / Prints test message to standard output
+         * @brief Simple linkage smoke test invoked from legacy entry points
+         * @details Currently emits a readiness message to stdout
          */
         static void runTest();
 
         /**
         * @brief Check whether the midpoint of a segment between two points lies inside the solid
-        * 检查两点连线中点是否位于实体内部
         * @details Used to distinguish slot vs. tongue by probing material occupancy
-        * 通过采样中点判断材料分布，用于区分槽/榫特征
-        * @param p1 输入：第一采样点 / First sample point
-        * @param p2 输入：第二采样点 / Second sample point
-        * @param solid 输入：待测试的实体 / Solid used for inside-outside test
-        * @return 输出：位于实体内部返回 true，否则返回 false / true if midpoint is inside the solid
+        * @param p1 input: first sample point
+        * @param p2 input: second sample point
+        * @param solid input: solid used for inside-outside test
+        * @return output: true if midpoint is inside the solid, otherwise false
         */
         static bool IsMaterialBetween(const gp_Pnt& p1, const gp_Pnt& p2, const TopoDS_Shape& solid);
 
-        // [新增] 获取用于深度学习的图数据
-        // [NEW] Get graph data formatted for PyTorch Geometric
+        /**
+         * @brief Retrieve the current list of inferred assembly constraints
+         * @return output: copy of the internal constraint vector
+         */
+        [[nodiscard]] std::vector<AssemblyConstraint> GetAssemblyConstraints() const { return constraints_; }
+
+        /**
+         * @brief Generate flattened graph data for a specific part ID
+         * @details Converts atomic features and adjacency information into arrays consumable by PyG
+         * @param partID input: identifier of the part to export
+         * @return output: populated DeepLearningGraphData structure (empty if part not found)
+         */
         [[nodiscard]] DeepLearningGraphData GetGraphDataForPart(const std::string& partID) const;
 
     private:
         // Internal logic helpers (Step 1)
         /**
-         * @brief Recursively extract parts from XDE label
-         * 递归从 XDE 标签提取零件
-         * @details Traverses assembly hierarchy, accumulates transformations, and extracts solid parts
-         * 遍历装配层次结构，累积变换，提取实体零件
-         * @param label XDE 标签节点 / XDE label node to process
-         * @param transformation 累积的变换矩阵 / Accumulated transformation matrix
-         * @output 向 partNodes_ 向量添加零件节点 / Adds part nodes to partNodes_ vector
+         * @brief Recursively extract PartNode entries from an XDE label
+         * @details Handles both assembly and simple-shape labels while accumulating the applied transformation
+         * @param label input: XDE label under inspection
+         * @param transformation input: cumulative transformation from parent assemblies
          */
         void ExtractPartsFromLabel(const TDF_Label& label, const gp_Trsf& transformation);
 
         // Internal logic helpers (Step 2)
         /**
-         * @brief Classify atomic features for a single part
-         * 对单个零件进行原子特征分类
-         * @details Iterates through all faces, identifies geometry type, determines concavity, and analyzes adjacency
-         * 遍历所有面，识别几何类型，确定凹凸性，分析邻接关系
-         * @param partNode 要分类的零件节点（引用）/ Part node to classify (by reference)
-         * @output 填充 partNode.atomicFeatures 和 faceIDMap_ / Populates partNode.atomicFeatures and faceIDMap_
+         * @brief Classify every face in the given part into AtomicFeature records
+         * @details Computes geometry, concavity, area, adjacency, and fragment metadata for downstream processing
+         * @param partNode input/output: part structure receiving freshly computed atomicFeatures
          */
         void ClassifyPartAtomicFeatures(PartNode& partNode);
 
         /**
-         * @brief Merge fragmented features belonging to same geometric surface
-         * 合并属于同一几何面的碎片特征
-         * @details Groups faces split by trim curves or seams into logical features
-         * 将因修剪曲线或缝合线分割的面组合成逻辑特征
-         * @input 无显式输入参数（使用内部 partNodes_）/ No explicit input (uses internal partNodes_)
-         * @output 标记碎片特征并设置逻辑特征 ID / Marks fragment features and sets logical feature IDs
+         * @brief Merge atomic features that belong to the same analytical surface
+         * @details Collapses curved fragments into logical groups, assigning shared IDs and accumulated areas
          */
         void MergeFragmentedFeatures() const;
 
-        // /**
-        //  * @brief Create atomic feature from a face (deprecated/unused helper)
-        //  * 从面创建原子特征（已弃用/未使用的辅助函数）
-        //  * @details This function signature exists but is not currently used in the implementation
-        //  * 此函数签名存在但当前实现中未使用
-        //  * @param face 面对象 / Face object
-        //  * @param faceIndex 面索引 / Face index
-        //  * @param parentSolid 父实体 / Parent solid
-        //  * @param partID 零件 ID / Part ID
-        //  * @return 原子特征共享指针 / Shared pointer to atomic feature
-        //  */
-        // std::shared_ptr<AtomicFeature> CreateAtomicFeature(
-        //     const TopoDS_Face& face, int faceIndex,
-        //     const TopoDS_Shape& parentSolid, const std::string& partID);
-
         /**
-         * @brief Identify geometry type and extract geometric parameters
-         * 识别几何类型并提取几何参数
-         * @details Analyzes underlying surface to classify as plane, cylinder, cone, sphere, torus, or BSpline
-         * 分析底层曲面，分类为平面、圆柱、圆锥、球面、环面或 B 样条
-         * @param face 要分析的面 / Face to analyze
-         * @return 几何类型和参数的配对 / Pair of atom type and geometric parameters
+         * @brief Inspect the OCC surface backing a face and return its AtomType plus parameters
+         * @param face input: face whose geometry is analyzed
+         * @return output: pair of AtomType and filled GeometricParams
          */
         static std::pair<AtomType, GeometricParams> IdentifyGeometryType(const TopoDS_Face& face);
 
         /**
-         * @brief Determine concavity (form type) of a face
-         * 确定面的凹凸性（形态类型）
-         * @details Uses curvature center test: if center is inside solid, surface is convex; if outside, concave
-         * 使用曲率中心测试：中心在实体内则凸出，在外则凹陷
-         * @param face 要分析的面 / Face to analyze
-         * @param atomType 几何类型 / Atom type
-         * @param geomParams 几何参数 / Geometric parameters
-         * @param parentSolid 父实体（用于内外判断）/ Parent solid (for inside/outside test)
-         * @return 形态类型（CONVEX, CONCAVE, 或 NEUTRAL）/ Form type (CONVEX, CONCAVE, or NEUTRAL)
+         * @brief Determine whether a classified face is convex, concave, or neutral
+         * @param face input: target face
+         * @param atomType input: previously detected surface type
+         * @param geomParams input: geometry parameters including center point
+         * @param parentSolid input: solid used for inside/outside testing
+         * @return output: FormType result describing concavity
          */
         static FormType DetermineConcavity(
             const TopoDS_Face& face, const AtomType& atomType,
             const GeometricParams& geomParams, const TopoDS_Shape& parentSolid);
 
-
         /**
-         * @brief Compute the dihedral angle (in radians) between two faces along a shared edge.
-         * 计算两个面在共享边处的二面角（弧度制）。
-         * Logic:
-         * 1. Sample the midpoint of the edge.
-         * 2. Get UV coordinates of this point on both faces.
-         * 3. Compute surface normals at UV points.
-         * 4. Correct normal direction based on face orientation.
-         * 5. Calculate angle between normals.
+         * @brief Measure the dihedral angle between two faces sharing the same edge
+         * @details Evaluates normals at the edge midpoint and returns the angle in radians
          */
         static double ComputeEdgeDihedralAngle(const TopoDS_Edge& edge, const TopoDS_Face& f1, const TopoDS_Face& f2);
 
-
         /**
-         * @brief Analyze topological adjacency relationships
-         * 分析拓扑邻接关系
-         * @details Finds neighboring faces through shared edges and determines continuity type (C0, C1, C2)
-         * 通过共享边查找相邻面，确定连续性类型（C0、C1、C2）
-         * @param face 要分析的面 / Face to analyze
-         * @param faceID 面的 ID / Face ID
-         * @param parentSolid 父实体 / Parent solid
-         * @return 邻接信息向量 / Vector of adjacency information
+         * @brief Build an adjacency list for the supplied face within a parent solid
+         * @details Iterates over incident edges, locates neighboring faces, and stores continuity and angles
+         * @param face input: face under analysis
+         * @param faceID input: identifier associated with the face
+         * @param parentSolid input: solid needed for edge-to-face mapping
+         * @return output: vector of AdjacencyInfo entries
          */
         std::vector<AdjacencyInfo> AnalyzeTopologicalAdjacency(
             const TopoDS_Face& face, const std::string& faceID,
             const TopoDS_Shape& parentSolid);
 
         // Internal logic helpers (Step 3)
-        // Using shared_ptr for map values for safety
-        // 使用 shared_ptr 确保 Map 中的指针安全
+        // Using shared_ptr for map values to prevent pointer invalidation
         using FeatureMap = std::map<std::string, std::shared_ptr<AtomicFeature>>;
 
         /**
-         * @brief Recognize hole feature (concave cylinder)
-         * 识别孔特征（凹陷圆柱）
-         * @details Rule: Cylinder + Concave form type. Supports merged fragmented cylinders.
-         * 规则：圆柱 + 凹陷形态。支持合并的碎片圆柱。
-         * @param partNode 零件节点（引用）/ Part node (by reference)
-         * @param feature 候选原子特征 / Candidate atomic feature
-         * @param featureMap 特征 ID 到特征的映射 / Map from feature ID to feature
-         * @return 识别成功返回 true，否则返回 false / Returns true if recognized, false otherwise
+         * @brief Recognize hole features composed of concave cylindrical surfaces
+         * @details Accepts candidate concave cylinders, optionally merges fragments, and records blind/through metadata
+         * @param partNode input/output: part that receives the new composite feature
+         * @param feature input: candidate atomic cylinder
+         * @param featureMap input/output: lookup table used to mark faces as consumed
+         * @return output: true if a hole feature was recognized, otherwise false
          */
         static bool RecognizeHoleFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature, FeatureMap& featureMap);
 
         /**
-         * @brief Recognize shaft feature (convex cylinder)
-         * 识别轴特征（凸出圆柱）
-         * @details Rule: Cylinder + Convex form type. Supports merged fragmented cylinders.
-         * 规则：圆柱 + 凸出形态。支持合并的碎片圆柱。
-         * @param partNode 零件节点（引用）/ Part node (by reference)
-         * @param feature 候选原子特征 / Candidate atomic feature
-         * @param featureMap 特征 ID 到特征的映射 / Map from feature ID to feature
-         * @return 识别成功返回 true，否则返回 false / Returns true if recognized, false otherwise
+         * @brief Recognize shaft features composed of convex cylindrical surfaces
+         * @details Mirrors the hole logic but for protruding geometry used in mating conditions
+         * @param partNode input/output: part that receives the new composite feature
+         * @param feature input: candidate atomic cylinder
+         * @param featureMap input/output: lookup table used to mark faces as consumed
+         * @return output: true if a shaft feature was recognized, otherwise false
          */
         static bool RecognizeShaftFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature, FeatureMap& featureMap);
 
         /**
-         * @brief Recognize step plane feature (plane adjacent to hole/shaft)
-         * 识别台阶面特征（与孔/轴相邻的平面）
-         * @details Rule: Plane + Neutral form + Adjacent to cylinder via C0 edge
-         * 规则：平面 + 中性形态 + 通过 C0 边与圆柱相邻
-         * @param partNode 输入：零件节点引用 / Part node reference
-         * @param feature 输入：候选原子特征 / Candidate atomic feature
-         * @param featureMap 输入：特征映射表 / Feature ID map
-         * @return 输出：识别成功返回 true，否则返回 false / true on successful step-plane recognition
+         * @brief Recognize step planes adjacent to cylindrical features via sharp (C0) edges
+         * @details Promotes neutral planes that neighbor cylinders into STEP_PLANE composites
+         * @param partNode input/output: owning part
+         * @param feature input: candidate atomic plane
+         * @param featureMap input/output: map used to find adjacent faces
+         * @return output: true if a step plane was recorded, otherwise false
          */
         static bool RecognizeStepPlaneFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature, FeatureMap& featureMap);
 
         /**
-         * @brief Recognize functional plane feature (significant mating surface)
-         * 识别功能平面特征（重要配合面）
-         * @details Catch-all rule: Plane + Neutral form + Functional (area > threshold) + Not consumed
-         * 兜底规则：平面 + 中性形态 + 功能性（面积大于阈值）+ 未被其他特征使用
-         * @param partNode 输入：零件节点引用 / Part node reference
-         * @param feature 输入：候选原子特征 / Candidate atomic feature
-         * @param featureMap 输入：特征映射表 / Feature ID map
-         * @return 输出：识别成功返回 true，否则返回 false / true when plane promoted to functional feature
+         * @brief Recognize functional planes that remain unconsumed yet exceed area/importance thresholds
+         * @details Acts as a catch-all to ensure significant planar surfaces are captured for mating relations
+         * @param partNode input/output: owning part
+         * @param feature input: candidate atomic plane
+         * @param featureMap input/output: map used for state tracking
+         * @return output: true if the plane was promoted to a composite feature, otherwise false
          */
         static bool RecognizeFunctionalPlaneFeature(PartNode& partNode, const std::shared_ptr<AtomicFeature>& feature,
                                                     FeatureMap& featureMap);
 
+        /**
+         * @brief Compute the surface area of a given face
+         * @details Uses BRepGProp to calculate the precise surface area via mass properties
+         * @param face input: face whose area is measured
+         * @return output: surface area in square units (typically mm2)
+         */
         static double ComputeFaceArea(const TopoDS_Face& face);
+
+        /**
+         * @brief Sample a representative point on the face surface
+         * @details Evaluates the face at the midpoint of its UV parameter domain
+         * @param face input: face from which to extract a sample point
+         * @return output: 3D point in world coordinates
+         */
         static gp_Pnt GetFaceSamplePoint(const TopoDS_Face& face);
+
+        /**
+         * @brief Measure the height of a cylindrical face along its axis
+         * @details Projects all edge vertices onto the axis and computes the span distance
+         * @param face input: cylindrical face to measure
+         * @param axisPoint input: reference point on the cylinder axis
+         * @param axisVector input: direction vector of the cylinder axis
+         * @return output: height measured along the axis direction
+         */
         static double ComputeCylinderHeight(const TopoDS_Face& face, const gp_Pnt& axisPoint, const gp_Dir& axisVector);
 
-        // --- Step 4 Helpers / 步骤四辅助函数 ---
+        /**
+         * @brief Evaluate all feature pairs between two parts and record compatible constraints
+         * @details Iterates over composite features in both parts and delegates to coaxial/planar matchers
+         * @param nodeA input: first part in the pair
+         * @param nodeB input: second part in the pair
+         */
         void MatchPartPair(const PartNode& nodeA, const PartNode& nodeB);
+
+        /**
+         * @brief Test whether two cylindrical features form a valid coaxial constraint
+         * @details Checks axis parallelism, distance from axis, and radius compatibility
+         * @param nodeA input: part containing the first feature
+         * @param featA input: first cylindrical feature (hole or shaft)
+         * @param nodeB input: part containing the second feature
+         * @param featB input: second cylindrical feature (hole or shaft)
+         */
         void MatchCoaxial(const PartNode& nodeA, const CompositeFeature& featA,
                           const PartNode& nodeB, const CompositeFeature& featB);
+
+        /**
+         * @brief Test whether two planar features form a valid coincident constraint
+         * @details Verifies that normals are opposite, planes are co-planar, and bounding boxes overlap
+         * @param nodeA input: part containing the first feature
+         * @param featA input: first planar feature (functional or step plane)
+         * @param nodeB input: part containing the second feature
+         * @param featB input: second planar feature (functional or step plane)
+         */
         void MatchCoincident(const PartNode& nodeA, const CompositeFeature& featA,
                              const PartNode& nodeB, const CompositeFeature& featB);
+
+        /**
+         * @brief Transform a local axis to world coordinates using the provided transformation
+         * @details Applies the gp_Trsf to both the axis location and direction
+         * @param localAxis input: axis in part-local coordinates
+         * @param trsf input: transformation matrix from local to world space
+         * @return output: transformed axis in world coordinates
+         */
         static gp_Ax1 TransformAxis(const gp_Ax1& localAxis, const gp_Trsf& trsf);
+
+        /**
+         * @brief Transform a local point to world coordinates using the provided transformation
+         * @details Applies the gp_Trsf to the point coordinates
+         * @param localPnt input: point in part-local coordinates
+         * @param trsf input: transformation matrix from local to world space
+         * @return output: transformed point in world coordinates
+         */
         static gp_Pnt TransformPoint(const gp_Pnt& localPnt, const gp_Trsf& trsf);
+
+        /**
+         * @brief Transform a local direction vector to world coordinates using the provided transformation
+         * @details Applies the gp_Trsf to the direction components (ignores translation)
+         * @param localDir input: direction in part-local coordinates
+         * @param trsf input: transformation matrix from local to world space
+         * @return output: transformed direction in world coordinates
+         */
         static gp_Dir TransformDir(const gp_Dir& localDir, const gp_Trsf& trsf);
+
+        /**
+         * @brief Perform broad-phase collision detection between two parts using axis-aligned bounding boxes
+         * @details Computes bounding boxes in world space, enlarges by tolerance, and tests for overlap
+         * @param nodeA input: first part to test
+         * @param nodeB input: second part to test
+         * @return output: true if bounding boxes overlap (potential contact), otherwise false
+         */
         static bool CheckBoundingBoxCollision(const PartNode& nodeA, const PartNode& nodeB);
 
         // Member Data
-        Handle(TDocStd_Document) doc_;
-        Handle(XCAFDoc_ShapeTool) shapeTool_;
+        Handle(TDocStd_Document) doc_;              // XDE document holding the imported STEP assembly
+        Handle(XCAFDoc_ShapeTool) shapeTool_;      // XDE shape tool for navigating the assembly hierarchy
 
-        std::vector<PartNode> partNodes_;
+        std::vector<PartNode> partNodes_;           // Collection of all extracted parts with their features
 
-        // [Fix] Updated Comparator
+        // Custom comparator for using TopoDS_Face as a map key
         struct FaceComparator
         {
             bool operator()(const TopoDS_Face& f1, const TopoDS_Face& f2) const
@@ -663,7 +631,6 @@ namespace ASG
                 }
 
                 // 2. Compare Location Hash
-                // Using IntegerLast() from Standard_Integer.hxx instead of INT_MAX
                 const int h1 = static_cast<int>(f1.Location().HashCode());
 
                 if (const int h2 = static_cast<int>(f2.Location().HashCode()); h1 != h2)
@@ -676,15 +643,11 @@ namespace ASG
             }
         };
 
-        std::map<TopoDS_Face, std::string, FaceComparator> faceIDMap_;
+        std::map<TopoDS_Face, std::string, FaceComparator> faceIDMap_;  // Bidirectional lookup: face to unique ID
 
         /**
-         * @brief Store discovered assembly constraints
-         * 存储识别到的装配约束
-         * @details Accumulates constraints detected during BuildAssemblyConstraintGraph
-         * 汇总 BuildAssemblyConstraint 过程中识别到的约束
-         * @input 由匹配函数写入 / Filled by matcher functions
-         * @output 向其他模块提供约束查询 / Available for downstream consumers
+         * @brief Store the list of assembly constraints discovered during graph construction
+         * @details Populated by BuildAssemblyConstraintGraph and consumed by downstream clients
          */
         std::vector<AssemblyConstraint> constraints_;
     };
