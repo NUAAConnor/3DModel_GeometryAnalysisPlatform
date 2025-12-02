@@ -17,16 +17,10 @@
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_ToroidalSurface.hxx>
 #include <Geom_BSplineSurface.hxx>
-#include <GeomAbs_Shape.hxx>
-#include <TopExp.hxx>
+#include <TopoDS.hxx>
 #include <TopExp_Explorer.hxx>
 #include <Bnd_Box.hxx>
-#include <BRepBndLib.hxx>
-#include <Geom2d_Curve.hxx>
-#include <gp_Pnt2d.hxx>
-#include <BRepAdaptor_Surface.hxx>
 #include <gp_Vec.hxx>
-#include <ElCLib.hxx>
 
 // Standard Library
 #include <iomanip>
@@ -34,6 +28,7 @@
 #include <cmath>
 #include <limits>
 #include <fstream>
+
 
 namespace ASG
 {
@@ -387,7 +382,8 @@ namespace ASG
             const double dihedralAngle = ComputeEdgeDihedralAngle(edge, face, neighborFace);
 
             // h. Classify continuity based on the dihedral angle
-            auto continuity = ContinuityType::UNKNOWN;
+            //auto continuity = ContinuityType::UNKNOWN;
+            ContinuityType continuity;
             if (dihedralAngle > Constants::C0_Continuity_Threshold)
             {
                 continuity = ContinuityType::C0; // Sharp edge

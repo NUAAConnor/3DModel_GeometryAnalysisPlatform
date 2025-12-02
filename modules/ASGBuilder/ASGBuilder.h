@@ -13,7 +13,6 @@
 #include <vector>
 #include <map>
 #include <memory> // smart pointers
-#include <set>
 #include <iostream>
 #include <optional> // C++17/20
 #include <climits>
@@ -26,27 +25,17 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
-#include <TopoDS_Vertex.hxx>
-#include <TopoDS_Wire.hxx>
-#include <TopoDS.hxx>
 #include <TopLoc_Location.hxx>
-#include <TopExp_Explorer.hxx>
 #include <TopExp.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
 #include <Bnd_Box.hxx>
 
 // Geometry & Math
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
-#include <gp_Vec.hxx>
 #include <gp_Ax1.hxx>
-#include <gp_Ax2.hxx>
 #include <gp_Pln.hxx>
-#include <gp_Cylinder.hxx>
 #include <Geom_Surface.hxx>
-#include <Geom_Curve.hxx>
 
 // XDE / STEP Import
 #include <TDocStd_Document.hxx>
