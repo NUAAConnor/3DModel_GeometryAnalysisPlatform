@@ -26,6 +26,7 @@
 #include <gp_Pnt2d.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <gp_Vec.hxx>
+#include <ElCLib.hxx>
 
 // Standard Library
 #include <iomanip>
@@ -173,24 +174,38 @@ namespace ASG
             return FormType::NEUTRAL;
         }
 
-        // b. Compute a test point offset along the inward normal to probe material presence
         gp_Pnt testPoint;
-        const double offsetDistance = atomType == AtomType::CYLINDER || atomType == AtomType::CONE
-                                          ? geomParams.radius
-                                          : 1.0;
+        const gp_Pnt samplePoint = GetFaceSamplePoint(face);
 
+        // [FIX] Improved Logic for Cylinder and Cone
         if (atomType == AtomType::CYLINDER || atomType == AtomType::CONE)
         {
-            // c. For cylinder/cone: offset radially inward from the axis
-            const gp_Pnt samplePoint = GetFaceSamplePoint(face);
-            gp_Vec radialDir(geomParams.locationPoint, samplePoint);
-            if (radialDir.Magnitude() > 1e-9)
+            // b. Project samplePoint onto the axis to get the correct center for this slice
+            //    (Original code used geomParams.locationPoint which causes diagonal drift)
+            gp_Vec axisVec(geomParams.axisVector);
+            gp_Vec toSample(geomParams.locationPoint, samplePoint);
+
+            // Projection length along axis
+            double projection = toSample.Dot(axisVec);
+
+            // The point on axis closest to samplePoint
+            gp_Pnt axisProjPoint = geomParams.locationPoint.Translated(projection * axisVec);
+
+            // Compute TRUE radial vector (perpendicular to axis)
+            gp_Vec radialDir(axisProjPoint, samplePoint);
+            double localRadius = radialDir.Magnitude();
+
+            // c. Robust offset distance calculation
+            //    For cones, localRadius is safer than geomParams.radius (RefRadius)
+            if (localRadius > 1e-9)
             {
                 radialDir.Normalize();
-                testPoint = samplePoint.Translated(-offsetDistance * 0.5 * radialDir);
+                // Move halfway towards the axis
+                testPoint = samplePoint.Translated(-localRadius * 0.5 * radialDir);
             }
             else
             {
+                // Degenerate case (e.g. apex of cone), treat as neutral or skip
                 return FormType::NEUTRAL;
             }
         }
@@ -198,7 +213,6 @@ namespace ASG
         {
             // d. For sphere: offset toward the center
             const gp_Pnt center = geomParams.locationPoint;
-            const gp_Pnt samplePoint = GetFaceSamplePoint(face);
             gp_Vec toCenter(samplePoint, center);
             if (toCenter.Magnitude() > 1e-9)
             {
@@ -212,19 +226,35 @@ namespace ASG
         }
         else
         {
-            // e. Torus or other: use a simple inward offset strategy
-            return FormType::NEUTRAL;
+            // e. Torus: Compute direction to axis similarly to cylinder
+            gp_Vec axisVec(geomParams.axisVector);
+            gp_Vec toSample(geomParams.locationPoint, samplePoint);
+            double projection = toSample.Dot(axisVec);
+            gp_Pnt axisProjPoint = geomParams.locationPoint.Translated(projection * axisVec);
+            gp_Vec radialDir(axisProjPoint, samplePoint);
+
+            if (radialDir.Magnitude() > 1e-9) {
+                radialDir.Normalize();
+                // For torus, minor radius is the tube radius.
+                // We move inward by a fraction of the minor radius.
+                double offset = geomParams.minorRadius > 1e-6 ? geomParams.minorRadius * 0.5 : 0.1;
+                testPoint = samplePoint.Translated(-offset * radialDir);
+            } else {
+                return FormType::NEUTRAL;
+            }
         }
 
-        // f. Classify the test point: inside material => concave, outside => convex
+        // f. Classify the test point
+        //    IN  => Material exists towards axis => Shaft (CONVEX)
+        //    OUT => Void exists towards axis     => Hole  (CONCAVE)
         const BRepClass3d_SolidClassifier classifier(parentSolid, testPoint, 1e-7);
         if (classifier.State() == TopAbs_IN)
         {
-            return FormType::CONCAVE;
+            return FormType::CONVEX;
         }
         if (classifier.State() == TopAbs_OUT)
         {
-            return FormType::CONVEX;
+            return FormType::CONCAVE;
         }
 
         return FormType::NEUTRAL;
