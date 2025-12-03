@@ -50,14 +50,14 @@ namespace ASG
 
     namespace Constants
     {
-        constexpr double DistanceTolerance = 1e-6;         // Distance tolerance used for radius comparisons and bounding-box enlargement
-        constexpr double AngleTolerance = 1e-6;            // Angular tolerance (radians) for axis, normal, and direction comparisons
-        constexpr double FaceAreaThreshold = 0.001;        // Minimum area to be considered functional
+        constexpr double DistanceTolerance = 1e-6; // Distance tolerance used for radius comparisons and bounding-box enlargement
+        constexpr double AngleTolerance = 1e-6; // Angular tolerance (radians) for axis, normal, and direction comparisons
+        constexpr double FaceAreaThreshold = 0.001; // Minimum area to be considered functional
         constexpr double CoaxialRadiusDiffTolerance = 0.5; // Max radius difference for coaxial fit
         constexpr double CoincidentOverlapTolerance = 1.0; // Bounding box overlap tolerance for planes
-        constexpr double ConcavityOffsetRatio = 0.5;       // Ratio to move probe point
-        constexpr double C0_Continuity_Threshold = 0.1;    // Radians (~5.7 deg)
-        constexpr double C1_Continuity_Threshold = 0.01;   // Radians (~0.57 deg)
+        constexpr double ConcavityOffsetRatio = 0.5; // Ratio to move probe point
+        constexpr double C0_Continuity_Threshold = 0.1; // Radians (~5.7 deg)
+        constexpr double C1_Continuity_Threshold = 0.01; // Radians (~0.57 deg)
     }
 
     // ============================================================================
@@ -96,10 +96,10 @@ namespace ASG
      */
     enum class ContinuityType
     {
-        C0,     //sharply
-        C1,     //tangentially
-        C2,     //smoothly
-        UNKNOWN     //cannot be determined
+        C0, //sharply
+        C1, //tangentially
+        C2, //smoothly
+        UNKNOWN //cannot be determined
     };
 
     /**
@@ -132,9 +132,9 @@ namespace ASG
      */
     enum class ConstraintType
     {
-        COAXIAL,    // hole-shaft/hole-hole
+        COAXIAL, // hole-shaft/hole-hole
         COINCIDENT, // face2face
-        OFFSET      // face2face with distance(not used currently)
+        OFFSET // face2face with distance(not used currently)
     };
 
     // ==========================================================================
@@ -179,14 +179,14 @@ namespace ASG
      */
     struct GeometricParams
     {
-        gp_Dir axisVector;          // Normal for Plane, Axis for Cylinder/Cone
-        gp_Pnt locationPoint;       // Location for Plane, Axis Point for Cylinder
-        double radius = 0.0;        // Radius (Cylinder, Cone, Sphere)
-        double height = 0.0;        // Height/Depth along axis
-        double semiAngle = 0.0;     // Cone semi-angle
-        double majorRadius = 0.0;   // Torus
-        double minorRadius = 0.0;   // Torus
-        double curvature = 0.0;     // Pre-computed curvature feature (Mean Curvature approximation)
+        gp_Dir axisVector; // Normal for Plane, Axis for Cylinder/Cone
+        gp_Pnt locationPoint; // Location for Plane, Axis Point for Cylinder
+        double radius = 0.0; // Radius (Cylinder, Cone, Sphere)
+        double height = 0.0; // Height/Depth along axis
+        double semiAngle = 0.0; // Cone semi-angle
+        double majorRadius = 0.0; // Torus
+        double minorRadius = 0.0; // Torus
+        double curvature = 0.0; // Pre-computed curvature feature (Mean Curvature approximation)
     };
 
     /**
@@ -380,13 +380,13 @@ namespace ASG
         static void runTest();
 
         /**
-        * @brief Check whether the midpoint of a segment between two points lies inside the solid
-        * @details Used to distinguish slot vs. tongue by probing material occupancy
-        * @param p1 input: first sample point
-        * @param p2 input: second sample point
-        * @param solid input: solid used for inside-outside test
-        * @return output: true if midpoint is inside the solid, otherwise false
-        */
+         * @brief Check whether the midpoint of a segment between two points lies inside the solid
+         * @details Used to distinguish slot vs. tongue by probing material occupancy
+         * @param p1 input: first sample point
+         * @param p2 input: second sample point
+         * @param solid input: solid used for inside-outside test
+         * @return output: true if midpoint is inside the solid, otherwise false
+         */
         static bool IsMaterialBetween(const gp_Pnt& p1, const gp_Pnt& p2, const TopoDS_Shape& solid);
 
         /**
@@ -396,12 +396,29 @@ namespace ASG
         [[nodiscard]] std::vector<AssemblyConstraint> GetAssemblyConstraints() const { return constraints_; }
 
         /**
+         * @brief Retrieve a list of all Part IDs found in the assembly
+         * @details Used by Python scripts to iterate over parts for batch processing
+         * @return Vector of Part ID strings
+         */
+        [[nodiscard]] std::vector<std::string> GetAllPartIDs() const;
+
+        /**
          * @brief Generate flattened graph data for a specific part ID
          * @details Converts atomic features and adjacency information into arrays consumable by PyG
          * @param partID input: identifier of the part to export
          * @return output: populated DeepLearningGraphData structure (empty if part not found)
          */
         [[nodiscard]] DeepLearningGraphData GetGraphDataForPart(const std::string& partID) const;
+
+        /**
+         * @brief Python-friendly wrapper for material check
+         * @param partID Input Part ID string
+         * @param p1_coords List of 3 doubles [x, y, z]
+         * @param p2_coords List of 3 doubles [x, y, z]
+         * @return true if material exists between points
+         */
+        [[nodiscard]] bool CheckMaterialBetween(const std::string& partID, const std::vector<double>& p1_coords,
+                                                const std::vector<double>& p2_coords) const;
 
     private:
         // Internal logic helpers (Step 1)
@@ -604,10 +621,10 @@ namespace ASG
         static bool CheckBoundingBoxCollision(const PartNode& nodeA, const PartNode& nodeB);
 
         // Member Data
-        Handle(TDocStd_Document) doc_;              // XDE document holding the imported STEP assembly
-        Handle(XCAFDoc_ShapeTool) shapeTool_;      // XDE shape tool for navigating the assembly hierarchy
+        Handle(TDocStd_Document) doc_; // XDE document holding the imported STEP assembly
+        Handle(XCAFDoc_ShapeTool) shapeTool_; // XDE shape tool for navigating the assembly hierarchy
 
-        std::vector<PartNode> partNodes_;           // Collection of all extracted parts with their features
+        std::vector<PartNode> partNodes_; // Collection of all extracted parts with their features
 
         // Custom comparator for using TopoDS_Face as a map key
         struct FaceComparator
@@ -633,7 +650,7 @@ namespace ASG
             }
         };
 
-        std::map<TopoDS_Face, std::string, FaceComparator> faceIDMap_;  // Bidirectional lookup: face to unique ID
+        std::map<TopoDS_Face, std::string, FaceComparator> faceIDMap_; // Bidirectional lookup: face to unique ID
 
         /**
          * @brief Store the list of assembly constraints discovered during graph construction

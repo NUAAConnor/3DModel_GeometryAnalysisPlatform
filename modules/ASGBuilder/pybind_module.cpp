@@ -68,6 +68,7 @@ PYBIND11_MODULE(ASGCore, m)
         .def("recognize_composites", &ASGBuilder::RecognizeCompositeFeatures)
         .def("build_constraint_graph", &ASGBuilder::BuildAssemblyConstraintGraph)
         .def("export_json", &ASGBuilder::ExportToJSON)
+        .def("get_all_part_ids", &ASGBuilder::GetAllPartIDs)
 
         // 核心 GNN 数据接口
         .def("get_graph_data", [](const ASGBuilder& self, const std::string& partID)
@@ -78,9 +79,7 @@ PYBIND11_MODULE(ASGCore, m)
         .def("get_constraints", &ASGBuilder::GetAssemblyConstraints)
 
         // 物理验证接口
-        .def_static("is_material_between", [](const py::object&, const py::object&)
-        {
-            // 暂时占位，未来需要处理 OCCT Shape 的 Python 传递
-            return false;
-        });
+        .def("check_material_between", &ASGBuilder::CheckMaterialBetween,
+             "Check if material exists between two points (World Coords) for a given Part ID",
+             py::arg("part_id"), py::arg("p1"), py::arg("p2"));
 }
