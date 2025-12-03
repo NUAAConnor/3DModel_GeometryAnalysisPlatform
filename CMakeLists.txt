@@ -11,6 +11,20 @@ endif()
 project("3DModel_GeometryAnalysisPlatform" LANGUAGES CXX)
 
 # ===================================================================
+#   Build Type Configuration (Added)
+# ===================================================================
+
+# Set a default build type if none was specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "Setting build type to 'Release' as none was specified.")
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
+    # Set the possible values of build type for cmake-gui
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+endif()
+
+message(STATUS "Current Build Type: ${CMAKE_BUILD_TYPE}")
+
+# ===================================================================
 #   Resolving Chinese character encoding issues
 # ===================================================================
 if(MSVC)
@@ -29,21 +43,38 @@ set(CMAKE_CXX_EXTENSIONS OFF) # Use standard C++, not MSVC specific extensions
 
 # ===================================================================
 #   Dependencies Path Configuration
-#   依赖路径配置
 # ===================================================================
 
 # Define Dependencies Root
 get_filename_component(DEPS_ROOT "${CMAKE_SOURCE_DIR}/../dependencies" ABSOLUTE)
 message(STATUS "Dependencies Root: ${DEPS_ROOT}")
 
+# -------------------------------------------------------------------
+#   Configurable Paths based on Build Type
+# -------------------------------------------------------------------
+
+# Determine folder names based on build type
+if(CMAKE_BUILD_TYPE MATCHES "^[Dd][Ee][Bb][Uu][Gg]$")
+    # Debug Mode
+    set(OCCT_INSTALL_FOLDER_NAME "occt-install-debug")
+    set(OCCT_BIN_FOLDER_NAME "bind") # Debug binaries often in 'bind'
+    message(STATUS "Configuring for DEBUG mode (using ${OCCT_INSTALL_FOLDER_NAME})")
+else()
+    # Release Mode (Release, RelWithDebInfo, MinSizeRel)
+    set(OCCT_INSTALL_FOLDER_NAME "occt-install-release")
+    set(OCCT_BIN_FOLDER_NAME "bin")  # Release binaries usually in 'bin'
+    message(STATUS "Configuring for RELEASE mode (using ${OCCT_INSTALL_FOLDER_NAME})")
+endif()
+
 # Set OCCT and 3rdparty paths
-set(OpenCASCADE_DIR "${DEPS_ROOT}/occt-install-d/cmake")
+set(OpenCASCADE_DIR "${DEPS_ROOT}/${OCCT_INSTALL_FOLDER_NAME}/cmake")
 set(THIRDPARTY_DIR  "${DEPS_ROOT}/3rdparty")
 
 # Validate OCCT path existence
 if(NOT EXISTS "${OpenCASCADE_DIR}")
     message(FATAL_ERROR "OCCT 'cmake' directory not found at: ${OpenCASCADE_DIR}\n"
-            "Please verify your directory structure matches the project requirements.")
+            "Current Build Type: ${CMAKE_BUILD_TYPE}\n"
+            "Please check if the directory '${OCCT_INSTALL_FOLDER_NAME}' exists in dependencies.")
 endif()
 
 # ===================================================================
@@ -100,18 +131,18 @@ if(MSVC)
     set(OCCT_PLATFORM_SUBDIR "win64/vc14")
 
     # 1. Copy OCCT DLLs
-    # Resolve the root from the cmake dir: .../occt-install/cmake/.. -> .../occt-install
+
+    # Resolve the root from the cmake dir: .../occt-install-X/cmake/.. -> .../occt-install-X
     get_filename_component(OCCT_INSTALL_ROOT "${OpenCASCADE_DIR}/.." REALPATH)
 
-    # Note: Using 'bin' for Release/RelWithDebInfo.
-    # If you strictly need Debug DLLs (often in 'bind'), you might need a configuration check here.
-    set(OCCT_BIN_DIR "${OCCT_INSTALL_ROOT}/${OCCT_PLATFORM_SUBDIR}/bind")
+    # Use the variable defined at the top (bind or bin)
+    set(OCCT_BIN_DIR "${OCCT_INSTALL_ROOT}/${OCCT_PLATFORM_SUBDIR}/${OCCT_BIN_FOLDER_NAME}")
 
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${OCCT_BIN_DIR}"
             "${APP_DIR}"
-            COMMENT "Copying OCCT DLLs to output directory..."
+            COMMENT "Copying OCCT DLLs (${OCCT_BIN_FOLDER_NAME}) to output directory..."
     )
 
     # 2. Copy 3rdparty DLLs
@@ -123,14 +154,27 @@ if(MSVC)
     )
 
     foreach(LIB_NAME ${THIRDPARTY_LIBS_TO_COPY})
-        set(LIB_BIN_DIR "${THIRDPARTY_DIR}/${LIB_NAME}/bin")
-        if(EXISTS "${LIB_BIN_DIR}")
+        # Check if 'bind' exists for 3rdparty in Debug, otherwise fallback to 'bin'
+        set(LIB_BIN_DIR_DEBUG "${THIRDPARTY_DIR}/${LIB_NAME}/bind")
+        set(LIB_BIN_DIR_RELEASE "${THIRDPARTY_DIR}/${LIB_NAME}/bin")
+
+        set(TARGET_LIB_BIN_DIR "")
+
+        if(CMAKE_BUILD_TYPE MATCHES "^[Dd][Ee][Bb][Uu][Gg]$" AND EXISTS "${LIB_BIN_DIR_DEBUG}")
+            set(TARGET_LIB_BIN_DIR "${LIB_BIN_DIR_DEBUG}")
+        elseif(EXISTS "${LIB_BIN_DIR_RELEASE}")
+            set(TARGET_LIB_BIN_DIR "${LIB_BIN_DIR_RELEASE}")
+        endif()
+
+        if(EXISTS "${TARGET_LIB_BIN_DIR}")
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${LIB_BIN_DIR}"
+                    "${TARGET_LIB_BIN_DIR}"
                     "${APP_DIR}"
-                    COMMENT "Copying ${LIB_NAME} DLLs..."
+                    COMMENT "Copying ${LIB_NAME} DLLs from ${TARGET_LIB_BIN_DIR}..."
             )
+        else()
+            message(WARNING "Could not find bin directory for ${LIB_NAME}. Expected at ${LIB_BIN_DIR_RELEASE} (or bind)")
         endif()
     endforeach()
 endif()
