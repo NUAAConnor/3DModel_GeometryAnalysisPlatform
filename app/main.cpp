@@ -12,7 +12,7 @@
 
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/Face2Face_Ass.stp)";
-const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/Face.stp)";
+const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/tests.step)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/USlot-Key_Ass.stp)";
 // const std::string STEP_FILE_PATH =
 //     R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Logic Check_Ass.stp)";

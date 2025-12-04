@@ -137,72 +137,85 @@ namespace ASG
 
     std::pair<AtomType, GeometricParams> ASGBuilder::IdentifyGeometryType(const TopoDS_Face& face)
     {
-        auto atomType = AtomType::OTHER;
+        AtomType atomType;
         GeometricParams params;
 
         // a. Extract the analytic surface pointer backing the topological face
-        const Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
-        if (surf.IsNull())
-        {
-            return {atomType, params};
-        }
+        BRepAdaptor_Surface adaptor(face);
+        GeomAbs_SurfaceType surfType = adaptor.GetType();
+        bool isReversed = face.Orientation() == TopAbs_REVERSED;
 
         // b. Attempt successive DownCast operations to known analytical surface categories
-        if (const Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surf))
+        switch (surfType)
         {
-            // c. Plane: capture reference point and oriented normal, flipping if the face is reversed
-            atomType = AtomType::PLANE;
-            const gp_Pln pln = plane->Pln();
-            params.locationPoint = pln.Location();
-            params.axisVector = pln.Axis().Direction();
-            if (face.Orientation() == TopAbs_REVERSED)
+        case GeomAbs_Plane:
             {
-                params.axisVector.Reverse();
+                // c. Plane: capture reference point and oriented normal, flipping if the face is reversed
+                atomType = AtomType::PLANE;
+                gp_Pln gp_plane = adaptor.Plane();
+
+                gp_Dir naturalNormal = gp_plane.Axis().Direction();
+                params.axisVector = isReversed ? naturalNormal.Reversed() : naturalNormal;
+                params.locationPoint = gp_plane.Location();
+                break;
+            }
+        case GeomAbs_Cylinder:
+            {
+                // d. Cylinder: store axis direction, reference point, and radius
+                atomType = AtomType::CYLINDER;
+                gp_Cylinder gp_cyl = adaptor.Cylinder(); // 直接获取解析圆柱
+
+                params.axisVector = gp_cyl.Axis().Direction();
+                params.locationPoint = gp_cyl.Axis().Location();
+                params.radius = gp_cyl.Radius();
+                break;
+            }
+        case GeomAbs_Cone:
+            {
+                // e. Cone: capture apex, axis, reference radius, and semi-angle for later taper checks
+                atomType = AtomType::CONE;
+                gp_Cone gp_cone = adaptor.Cone();
+
+                params.axisVector = gp_cone.Axis().Direction();
+                params.locationPoint = gp_cone.Axis().Location();
+                params.radius = gp_cone.RefRadius();
+                params.semiAngle = gp_cone.SemiAngle();
+                break;
+            }
+        case GeomAbs_Sphere:
+            {
+                // f. Sphere: store center and radius for curvature-driven reasoning
+                atomType = AtomType::SPHERE;
+                gp_Sphere gp_sphere = adaptor.Sphere();
+
+                params.locationPoint = gp_sphere.Location();
+                params.radius = gp_sphere.Radius();
+                break;
+            }
+        case GeomAbs_Torus:
+            {
+                // g. Torus: record donut center, axis, and both radii for later matching
+                atomType = AtomType::TORUS;
+                gp_Torus gp_torus = adaptor.Torus();
+
+                params.axisVector = gp_torus.Axis().Direction();
+                params.locationPoint = gp_torus.Axis().Location();
+                params.majorRadius = gp_torus.MajorRadius();
+                params.minorRadius = gp_torus.MinorRadius();
+                break;
+            }
+        case GeomAbs_BezierSurface:
+        case GeomAbs_BSplineSurface:
+            {
+                atomType = AtomType::BSPLINE;
+                break;
+            }
+        default:
+            {
+                atomType = AtomType::OTHER;
+                break;
             }
         }
-        else if (const Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(surf))
-        {
-            // d. Cylinder: store axis direction, reference point, and radius
-            atomType = AtomType::CYLINDER;
-            const gp_Cylinder cylinder = cyl->Cylinder();
-            params.locationPoint = cylinder.Location();
-            params.axisVector = cylinder.Axis().Direction();
-            params.radius = cylinder.Radius();
-        }
-        else if (const Handle(Geom_ConicalSurface) cone = Handle(Geom_ConicalSurface)::DownCast(surf))
-        {
-            // e. Cone: capture apex, axis, reference radius, and semi-angle for later taper checks
-            atomType = AtomType::CONE;
-            const gp_Cone gCone = cone->Cone();
-            params.locationPoint = gCone.Location();
-            params.axisVector = gCone.Axis().Direction();
-            params.radius = gCone.RefRadius();
-            params.semiAngle = gCone.SemiAngle();
-        }
-        else if (const Handle(Geom_SphericalSurface) sphere = Handle(Geom_SphericalSurface)::DownCast(surf))
-        {
-            // f. Sphere: store center and radius for curvature-driven reasoning
-            atomType = AtomType::SPHERE;
-            const gp_Sphere gSphere = sphere->Sphere();
-            params.locationPoint = gSphere.Location();
-            params.radius = gSphere.Radius();
-        }
-        else if (const Handle(Geom_ToroidalSurface) torus = Handle(Geom_ToroidalSurface)::DownCast(surf))
-        {
-            // g. Torus: record donut center, axis, and both radii for later matching
-            atomType = AtomType::TORUS;
-            const gp_Torus gTorus = torus->Torus();
-            params.locationPoint = gTorus.Location();
-            params.axisVector = gTorus.Axis().Direction();
-            params.majorRadius = gTorus.MajorRadius();
-            params.minorRadius = gTorus.MinorRadius();
-        }
-        else if (Handle(Geom_BSplineSurface)::DownCast(surf))
-        {
-            // h. B-Spline: flag as spline due to lacking closed-form parameters
-            atomType = AtomType::BSPLINE;
-        }
-
         // i. Return the detected atom type along with any populated geometric parameters
         return {atomType, params};
     }
