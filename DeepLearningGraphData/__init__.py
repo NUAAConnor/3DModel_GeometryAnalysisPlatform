@@ -92,5 +92,5 @@ try:
 
 except ImportError as e:
     raise ImportError(f"Failed to import ASGCore extension. Ensure dependencies are correct. Error: {e}")
-
+# noinspection PyUnresolvedReferences
 __all__ = ['ASGBuilder', 'AtomType', 'ConstraintType']
