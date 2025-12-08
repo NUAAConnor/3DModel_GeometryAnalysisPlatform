@@ -9,7 +9,7 @@
 namespace py = pybind11;
 using namespace ASG;
 
-// 辅助函数：将 C++ 图数据转为 Python 字典
+
 py::dict ConvertGraphDataToDict(const DeepLearningGraphData& data)
 {
     py::dict d;
@@ -30,7 +30,6 @@ PYBIND11_MODULE(ASGCore, m)
 {
     m.doc() = "ASGBuilder Python Interface";
 
-    // 1. 暴露枚举
     py::enum_<AtomType>(m, "AtomType")
         .value("PLANE", AtomType::PLANE).value("CYLINDER", AtomType::CYLINDER)
         .value("CONE", AtomType::CONE).value("SPHERE", AtomType::SPHERE)
@@ -49,7 +48,6 @@ PYBIND11_MODULE(ASGCore, m)
         .value("FUNCTIONAL_PLANE", CompositeFeatureType::FUNCTIONAL_PLANE)
         .value("STEP_PLANE", CompositeFeatureType::STEP_PLANE).export_values();
 
-    // 2. 暴露约束结构体
     py::class_<AssemblyConstraint>(m, "AssemblyConstraint")
         .def_readonly("type", &AssemblyConstraint::type)
         .def_readonly("part_id_a", &AssemblyConstraint::partID_A)
@@ -59,7 +57,6 @@ PYBIND11_MODULE(ASGCore, m)
         .def_readonly("value", &AssemblyConstraint::value)
         .def("__repr__", &AssemblyConstraint::ToString);
 
-    // 3. 暴露主类
     py::class_<ASGBuilder>(m, "ASGBuilder")
         .def(py::init<>())
         .def("load_step_file", &ASGBuilder::LoadAssemblyFromSTEP)
@@ -70,15 +67,12 @@ PYBIND11_MODULE(ASGCore, m)
         .def("export_json", &ASGBuilder::ExportToJSON)
         .def("get_all_part_ids", &ASGBuilder::GetAllPartIDs)
 
-        // 核心 GNN 数据接口
         .def("get_graph_data", [](const ASGBuilder& self, const std::string& partID)
         {
             return ConvertGraphDataToDict(self.GetGraphDataForPart(partID));
         })
-        // 核心 KG 构建接口
         .def("get_constraints", &ASGBuilder::GetAssemblyConstraints)
 
-        // 物理验证接口
         .def("check_material_between", &ASGBuilder::CheckMaterialBetween,
              "Check if material exists between two points (World Coords) for a given Part ID",
              py::arg("part_id"), py::arg("p1"), py::arg("p2"));

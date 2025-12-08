@@ -10,7 +10,7 @@ sys.path.append(str(project_root))
 # ==========================================
 # Import stays minimal thanks to package initialization
 # ==========================================
-ASGBuilder = None  # Ensure symbol exists even if the guarded import fails
+# ASGBuilder = None  # Ensure symbol exists even if the guarded import fails
 try:
     # Directly import the package; __init__.py configures DLLs and paths
     from DeepLearningGraphData import ASGBuilder

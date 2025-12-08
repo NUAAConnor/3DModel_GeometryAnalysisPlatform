@@ -10,9 +10,9 @@
 
 // Use raw string literal for cleaner path handling
 
-//const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
+const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Baseline_Ass.stp)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/Face2Face_Ass.stp)";
-const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/tests.step)";
+//const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/00009857_8a21c76d517b45ea8f74e0c2_step_003.step)";
 //const std::string STEP_FILE_PATH = R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/USlot-Key_Ass.stp)";
 // const std::string STEP_FILE_PATH =
 //     R"(F:/2025-Now_NUAA_PhD/Storage/ProjectCodeStore/OCCTProjectWorkspace/TestModels/The Logic Check_Ass.stp)";
@@ -25,10 +25,10 @@ int main()
     std::cout << "   3D Geometry Analysis Platform (Refactored) " << std::endl;
     std::cout << "==============================================" << std::endl;
 
-    // 1. Initialize Builder / 初始化构建器
+    // 1. Initialize Builder
     ASG::ASGBuilder builder;
 
-    // 2. Load File / 加载文件
+    // 2. Load File
     // Using std::filesystem to check existence first is a good modern practice
     if (!std::filesystem::exists(STEP_FILE_PATH))
     {
@@ -43,7 +43,7 @@ int main()
         return 1;
     }
 
-    // 3. Execute Pipeline / 执行分析流程
+    // 3. Execute Pipeline
     try
     {
         // A. Parse Structure
@@ -72,7 +72,7 @@ int main()
         // std::cout << "\n----------------------------------------------" << std::endl;
         // std::cout << "[TEST] Verifying Graph Data Export for GNN..." << std::endl;
         //
-        // // 测试零件 ID (根据你的日志，应该是 "HolePlane" 或 "Shaft")
+        // // Test ID
         // std::string testPartID = "HolePlane";
         //
         // ASG::DeepLearningGraphData graphData = builder.GetGraphDataForPart(testPartID);
@@ -86,7 +86,7 @@ int main()
         //     std::cout << "  > Nodes: " << numNodes << std::endl;
         //     std::cout << "  > Edges: " << numEdges << std::endl;
         //
-        //     // 打印前 5 个节点信息
+        //     // Print first five note informations
         //     std::cout << "  > Node Sample (First 5):" << std::endl;
         //     for(size_t i=0; i < std::min(static_cast<size_t>(5), numNodes); ++i) {
         //         std::cout << "    [" << i << "] Type: " << graphData.nodeTypes[i]
@@ -94,7 +94,7 @@ int main()
         //                   << ", Curv: " << graphData.nodeCurvatures[i] << std::endl;
         //     }
         //
-        //     // 打印前 5 条边信息 (检查二面角)
+        //     // print the first five edge information(cheque adgeangles)
         //     std::cout << "  > Edge Sample (First 5):" << std::endl;
         //     for(size_t i=0; i < std::min(static_cast<size_t>(5), numEdges); ++i) {
         //         std::cout << "    [" << i << "] " << graphData.edgeSource[i] << " -> " << graphData.edgeTarget[i]

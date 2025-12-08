@@ -497,13 +497,11 @@ namespace ASG
 
     bool ASGBuilder::CheckMaterialBetween(const std::string& partID, const std::vector<double>& p1_coords, const std::vector<double>& p2_coords) const
     {
-        // 1. 检查输入格式
         if (p1_coords.size() != 3 || p2_coords.size() != 3) {
             std::cerr << "[Error] CheckMaterialBetween expects 3D coordinates (x, y, z)." << std::endl;
             return false;
         }
 
-        // 2. 查找对应的 PartNode
         const PartNode* targetNode = nullptr;
         for (const auto& node : partNodes_) {
             if (node.partID == partID) {
@@ -517,18 +515,10 @@ namespace ASG
             return false;
         }
 
-        // 3. 转换坐标并调用底层静态函数
-        // 注意：这里需要在这一步应用变换吗？
-        // IsMaterialBetween 需要的是相对于 solid 的坐标。
-        // 如果 solid 是原始读取的（未变换），则需要将世界坐标 p1/p2 逆变换到局部坐标。
-        // 但我们在 ASGBuilder 中通常操作的是 "brepShape"。
-        // 在 ExtractPartsFromLabel 中，partNode.brepShape 是原始形状（通常位于局部坐标系）。
-        // 如果你的输入 p1, p2 是世界坐标，我们需要逆变换。
 
         gp_Pnt P1(p1_coords[0], p1_coords[1], p1_coords[2]);
         gp_Pnt P2(p2_coords[0], p2_coords[1], p2_coords[2]);
 
-        // 应用逆变换将世界坐标转回零件局部坐标
         gp_Trsf invTrsf = targetNode->transformation.Inverted();
         P1.Transform(invTrsf);
         P2.Transform(invTrsf);
