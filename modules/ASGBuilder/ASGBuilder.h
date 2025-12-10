@@ -307,6 +307,22 @@ namespace ASG
         [[nodiscard]] bool IsEmpty() const { return nodeTypes.empty(); }
     };
 
+    /**
+     * @brief 存储单个面的 UV 网格特征数据 (64x64x6)
+     * @details 数据展平存储，顺序为: [pixel_0_channels, pixel_1_channels, ...]
+     * Channels (6): Normal_X, Normal_Y, Normal_Z, GaussCurv, MeanCurv, Mask
+     */
+    struct UVGridData
+    {
+        std::string faceID;
+        int resolution = 64; // 默认分辨率 64x64
+        int channels = 6;    // 通道数
+
+        // 数据大小 = resolution * resolution * channels
+        // 使用一维数组存储以提高内存连续性，方便 Python 端转换为 Numpy/Tensor
+        std::vector<double> flattenedData;
+    };
+
 
     // ============================================================================
     // Main Class: ASGBuilder
@@ -419,6 +435,8 @@ namespace ASG
          */
         [[nodiscard]] bool CheckMaterialBetween(const std::string& partID, const std::vector<double>& p1_coords,
                                                 const std::vector<double>& p2_coords) const;
+
+        [[nodiscard]] std::vector<UVGridData> GetPartUVGrids(const std::string& partID) const;
 
     private:
         // Internal logic helpers (Step 1)
@@ -657,5 +675,7 @@ namespace ASG
          * @details Populated by BuildAssemblyConstraintGraph and consumed by downstream clients
          */
         std::vector<AssemblyConstraint> constraints_;
+
+        static UVGridData ComputeFaceUVGrid(const TopoDS_Face& face, const std::string& faceID, int resolution);
     };
 } // namespace ASG

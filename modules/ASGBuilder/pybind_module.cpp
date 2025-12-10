@@ -57,6 +57,14 @@ PYBIND11_MODULE(ASGCore, m)
         .def_readonly("value", &AssemblyConstraint::value)
         .def("__repr__", &AssemblyConstraint::ToString);
 
+    py::class_<UVGridData>(m, "UVGridData")
+        .def_readonly("face_id", &UVGridData::faceID)
+        .def_readonly("resolution", &UVGridData::resolution)
+        .def_readonly("channels", &UVGridData::channels)
+        .def_readonly("data", &UVGridData::flattenedData,
+            "Flattened array of size resolution*resolution*channels. "
+            "Layout: pixel0[nx,ny,nz,K,H,mask], pixel1[...]");
+
     py::class_<ASGBuilder>(m, "ASGBuilder")
         .def(py::init<>())
         .def("load_step_file", &ASGBuilder::LoadAssemblyFromSTEP)
@@ -66,14 +74,15 @@ PYBIND11_MODULE(ASGCore, m)
         .def("build_constraint_graph", &ASGBuilder::BuildAssemblyConstraintGraph)
         .def("export_json", &ASGBuilder::ExportToJSON)
         .def("get_all_part_ids", &ASGBuilder::GetAllPartIDs)
-
         .def("get_graph_data", [](const ASGBuilder& self, const std::string& partID)
         {
             return ConvertGraphDataToDict(self.GetGraphDataForPart(partID));
         })
         .def("get_constraints", &ASGBuilder::GetAssemblyConstraints)
-
         .def("check_material_between", &ASGBuilder::CheckMaterialBetween,
              "Check if material exists between two points (World Coords) for a given Part ID",
-             py::arg("part_id"), py::arg("p1"), py::arg("p2"));
+             py::arg("part_id"), py::arg("p1"), py::arg("p2"))
+        .def("get_part_uv_grids", &ASGBuilder::GetPartUVGrids,
+             "Compute UV-Grid features (Normals, Curvature, Mask) for all faces in a part",
+             py::arg("part_id"));
 }

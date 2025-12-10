@@ -21,6 +21,15 @@
 #include <TopExp_Explorer.hxx>
 #include <Bnd_Box.hxx>
 #include <gp_Vec.hxx>
+#include <BRepLProp_SLprops.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <gp_Pnt2d.hxx>
+
+#include <BRepLProp_SLprops.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <gp_Pnt2d.hxx>
+#include <TopAbs.hxx>
 
 // Standard Library
 #include <iomanip>
@@ -876,4 +885,91 @@ namespace ASG
         std::cout << "  Total Composite Features: " << totalCompositeFeatures << std::endl;
         std::cout << "========================================" << std::endl;
     }
+
+   UVGridData ASGBuilder::ComputeFaceUVGrid(const TopoDS_Face& face, const std::string& faceID, int resolution)
+    {
+        UVGridData data;
+        data.faceID = faceID;
+        data.resolution = resolution;
+        data.channels = 6;
+        data.flattenedData.resize(resolution * resolution * 6, 0.0);
+
+        // 1. 准备适配器
+        BRepAdaptor_Surface adaptor(face);
+        double uMin = adaptor.FirstUParameter();
+        double uMax = adaptor.LastUParameter();
+        double vMin = adaptor.FirstVParameter();
+        double vMax = adaptor.LastVParameter();
+
+        // 2. 准备分类器 (Mask 计算)
+        BRepTopAdaptor_FClass2d classifier(face, 1e-7);
+
+        // 3. 准备局部属性计算器 (法向/曲率)
+        BRepLProp_SLProps props(adaptor, 2, 1e-7);
+
+        // 4. 网格遍历
+        int idx = 0;
+        for (int i = 0; i < resolution; ++i)
+        {
+            double u = uMin + static_cast<double>(i) / (resolution - 1) * (uMax - uMin);
+
+            for (int j = 0; j < resolution; ++j)
+            {
+                double v = vMin + static_cast<double>(j) / (resolution - 1) * (vMax - vMin);
+
+                // --- A. 计算 Mask (裁剪掩码) ---
+                gp_Pnt2d uvPoint(u, v);
+
+                // 执行分类
+                TopAbs_State state = classifier.Perform(uvPoint);
+
+                // [FIXED] TopAbs_IN 和 TopAbs_ON 需要包含 <TopAbs.hxx>
+                bool isInside = state == TopAbs_IN || state == TopAbs_ON;
+                double maskVal = isInside ? 1.0 : 0.0;
+
+                // --- B. 计算几何属性 ---
+                double nx = 0.0, ny = 0.0, nz = 0.0;
+                double gaussCurv = 0.0, meanCurv = 0.0;
+
+                if (isInside)
+                {
+                    props.SetParameters(u, v);
+
+                    if (props.IsNormalDefined())
+                    {
+                        gp_Dir normal = props.Normal();
+                        if (face.Orientation() == TopAbs_REVERSED)
+                        {
+                            normal.Reverse();
+                        }
+                        nx = normal.X();
+                        ny = normal.Y();
+                        nz = normal.Z();
+                    }
+
+                    if (props.IsCurvatureDefined())
+                    {
+                        // 使用 std::clamp 限制数值范围
+                        gaussCurv = std::clamp(props.GaussianCurvature(), -100.0, 100.0);
+                        meanCurv = std::clamp(props.MeanCurvature(), -100.0, 100.0);
+                    }
+                }
+
+                // --- C. 填充数据 ---
+                // Layout: [Nx, Ny, Nz, K, H, Mask]
+                data.flattenedData[idx++] = nx;
+                data.flattenedData[idx++] = ny;
+                data.flattenedData[idx++] = nz;
+                data.flattenedData[idx++] = gaussCurv;
+                data.flattenedData[idx++] = meanCurv;
+                data.flattenedData[idx++] = maskVal;
+            }
+        }
+
+        return data;
+    }
+
+
+
+
 } // namespace ASG

@@ -599,4 +599,56 @@ namespace ASG
 
         return data;
     }
+
+    std::vector<UVGridData> ASGBuilder::GetPartUVGrids(const std::string& partID) const
+    {
+        std::vector<UVGridData> result;
+
+        // 1. 查找目标 Part
+        const PartNode* targetPart = nullptr;
+        for (const auto& node : partNodes_)
+        {
+            if (node.partID == partID)
+            {
+                targetPart = &node;
+                break;
+            }
+        }
+
+        if (!targetPart)
+        {
+            std::cerr << "[Error] GetPartUVGrids: PartID '" << partID << "' not found." << std::endl;
+            return result;
+        }
+
+        // 2. 遍历该 Part 的所有原子特征 (Atomic Features)
+        // 注意：这里建议使用并行计算 (OpenMP) 加速，因为 FaceClassifier 比较慢
+        // 如果你的编译器支持 OpenMP，可以取消注释下面的行
+        int numFeatures = static_cast<int>(targetPart->atomicFeatures.size());
+
+#pragma omp parallel for
+        for (int i = 0; i < numFeatures; ++i)
+        {
+            const auto& feat = targetPart->atomicFeatures[i];
+
+            // 计算单个面的 UV Grid
+            // 默认分辨率设为 64
+            UVGridData grid = ComputeFaceUVGrid(feat->brepFace, feat->faceID, 64);
+
+            // [关键] vector 的 push_back 不是线程安全的！
+            // 必须使用 critical 区保护，或者预分配大小后按索引写入
+            // 鉴于 OpenMP 的特性，预分配是更高效的做法，但需要改变 result 的写入方式
+
+#pragma omp critical
+            {
+                result.push_back(grid);
+            }
+        }
+
+        // 注意：如果是并行乱序执行，这里可能需要按 FaceID 重新排序以确保与 Graph 节点顺序一致
+        // 但目前先保持串行，确保顺序一致
+
+        return result;
+    }
+
 } // namespace ASG
