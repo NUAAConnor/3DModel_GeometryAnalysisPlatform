@@ -1,10 +1,10 @@
+import os
+from datetime import datetime
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch_geometric.loader import DataLoader
-import os
-import time
-from datetime import datetime
 
 # 导入我们之前写的模块
 from dataset import AircraftPartDataset
